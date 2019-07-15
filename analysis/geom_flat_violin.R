@@ -1,3 +1,15 @@
+## ----------------------------------------------------------------------------
+##
+## Create a half-violin plot in ggplot2.
+## Adapted from David Robinson: https://gist.github.com/dgrtwo/eb7750e74997891d7c20
+##
+## Author: Maarten van der Velde
+##
+## Last updated: 2019-07-15
+##
+## ----------------------------------------------------------------------------
+
+
 library(ggplot2)
 library(dplyr)
 

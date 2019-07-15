@@ -1,3 +1,14 @@
+## ----------------------------------------------------------------------------
+##
+## Functions to run the Bayesian model with normal-gamma prior and visualise
+## the model predictions.
+##
+## Author: Maarten van der Velde
+##
+## Last updated: 2019-07-15
+##
+## ----------------------------------------------------------------------------
+
 run_bayes_model <- function(observations) {
   # Include all observations
   alpha <- observations

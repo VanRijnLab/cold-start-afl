@@ -1,15 +1,14 @@
-
-# --------------------------------------------------------------------------
-# Slimtampen model functions
-#
-# These functions implement the same spacing model as the Javascript code in
-# jsrl. They can be used to reconstruct the state of the model (fact
-# activations, rates of forgetting) using recorded responses.
-#
-#
-# Maarten van der Velde 2019/03/08
-# 
-# --------------------------------------------------------------------------
+## ----------------------------------------------------------------------------
+##
+## These functions implement the same spacing model as the Javascript code in
+## jsrl-basic. They can be used to reconstruct the state of the model (fact
+## activations, rates of forgetting) using recorded responses.
+##
+## Author: Maarten van der Velde
+##
+## Last updated: 2019-07-15
+##
+## ----------------------------------------------------------------------------
 
 
 library(dplyr)

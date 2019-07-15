@@ -1,0 +1,474 @@
+---
+title: "Test of H2: The combination of learner history and fact history is more predictive of the observed rate of forgetting than either of these elements on its own"
+author: "Maarten van der Velde"
+date: "Last updated: `r Sys.time()`"
+output:
+  html_notebook:
+    smart: no
+    toc: yes
+    toc_float: yes
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+---
+
+# Overview
+
+This notebook contains the analysis of Hypothesis 2, as preregistered at https://osf.io/vwg6u/:
+
+> The prediction accuracy, expressed as the root mean square error (RMSE) of the predicted rates of forgetting relative to the observed rates of forgetting for each learner/fact combination, is expected to be highest (i.e., the RMSE will be lowest) when the predicted values are based on both the learner's previously measured rates of forgetting on other facts and the rates of forgetting of other learners for this fact. The prediction accuracy is expected to be lower when the prediction is based on only one of these two sources of information. There is no hypothesis as to which of these two sources of information is more predictive on its own. 
+
+
+
+
+# Setup
+
+## Load packages
+```{r}
+library(BayesFactor)
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(purrr)
+library(readr)
+library(stringr)
+library(tidyr)
+library(tikzDevice)
+library(fst)
+
+theme_set(theme_light(base_size = 14) +
+  theme(strip.text = element_text(colour = "black")))
+
+knitr::opts_chunk$set(fig.width=16, fig.height=16) 
+```
+
+
+## Load data
+```{r}
+final_alpha_lab_2 <- read.fst(file.path("..", "data", "processed", "lab", "session2", "session2_rl2_final_alpha_lab.fst"))
+final_alpha_mturk_2 <- read.fst(file.path("..", "data", "processed", "mturk", "session2", "session2_rl2_final_alpha_mturk.fst"))
+
+
+fix_condition_labels <- function(x) {
+  rowwise(x) %>%
+  mutate(condition = str_replace(condition, "-and-", " & ") %>%
+           str_replace("student", "learner") %>%
+           str_to_title()) %>%
+  ungroup() %>%
+  mutate(condition = fct_relevel(condition, "Fact & Learner", after = Inf)) # Move F&L level to the end
+}
+
+final_alpha_lab_2 <- fix_condition_labels(final_alpha_lab_2)
+final_alpha_mturk_2 <- fix_condition_labels(final_alpha_mturk_2)
+
+final_alpha_2 <- bind_rows(mutate(final_alpha_lab_2, dataset = "Lab"),
+                         mutate(final_alpha_mturk_2, dataset = "MTurk"))
+```
+
+
+
+## Subset data
+The preregistration specified 22 April 2019 as the cutoff date for data collection.
+We reached the minimum of 25 participants per condition in the lab sample before this date, but not in the Mechanical Turk sample.
+For that reason data collection on MTurk continued until there were at least 25 participants per condition (14 May 2019) and was stopped only then.
+The analysis reported in the paper is based only on the data from before the cutoff date, but this notebook also reports the same analysis done on the full dataset. 
+
+```{r}
+subjects_cutoff <- read_csv(file.path("..", "data", "processed", "subjects_before_cutoff.csv"))
+
+final_alpha_2_full <- final_alpha_2 
+
+final_alpha_2_cutoff <- final_alpha_2 %>%
+  right_join(subjects_cutoff, by = "subject")
+```
+
+
+# Predictions
+
+The distribution of predictions is plotted below, separated by condition and dataset.
+The predictions in the "default" and "domain" condition are of course always the same.
+```{r fig.width=12}
+final_alpha_2_cutoff %>%
+  filter(dataset == "Lab") %>%
+  ggplot(aes(x = prediction, fill = condition)) +
+  facet_wrap(~ condition, scales = "free_y") +
+  geom_histogram() +
+  scale_x_continuous(limits = range(final_alpha_2_cutoff$prediction)) +
+  scale_fill_brewer(type = "qual", palette = 7) +
+  guides(fill = FALSE) +
+  labs(title = "Predicted rate of forgetting (Lab)",
+       x = "Predicted rate of forgetting",
+       y = "Count")
+
+
+final_alpha_2_cutoff %>%
+  filter(dataset == "MTurk") %>%
+  ggplot(aes(x = prediction, fill = condition)) +
+  facet_wrap(~ condition, scales = "free_y") +
+  geom_histogram() +
+  scale_x_continuous(limits = range(final_alpha_2_cutoff$prediction)) +
+  scale_fill_brewer(type = "qual", palette = 7) +
+  guides(fill = FALSE) +
+  labs(title = "Predicted rate of forgetting (MTurk)",
+       x = "Predicted rate of forgetting",
+       y = "Count")
+```
+
+
+# Predicted vs. observed
+
+Compare the predicted rate of forgetting, used as the initial estimate, and the observed rate of forgetting (i.e., the final estimate).
+Only facts that were repeated at least 3 times are included.
+
+```{r}
+rmse <- function(a, b) {
+  sqrt(mean((a - b)^2))
+}
+
+pred_acc_by_subj_cutoff <- final_alpha_2_cutoff %>%
+  group_by(dataset, condition, subject) %>%
+  summarise(correlation = cor(prediction, final_alpha),
+            rmse = rmse(prediction, final_alpha)) %>%
+  ungroup() %>%
+  mutate(dataset = as.factor(dataset),
+         condition = as.factor(condition))
+
+pred_acc_by_subj_full <- final_alpha_2_full %>%
+  group_by(dataset, condition, subject) %>%
+  summarise(correlation = cor(prediction, final_alpha),
+            rmse = rmse(prediction, final_alpha)) %>%
+  ungroup() %>%
+  mutate(dataset = as.factor(dataset),
+         condition = as.factor(condition))
+
+pred_acc_by_cond_cutoff <- pred_acc_by_subj_cutoff %>%
+  group_by(dataset, condition) %>%
+  summarise(correlation_mean = mean(correlation, na.rm = T),
+            correlation_sd = sd(correlation, na.rm = T),
+            rmse_mean = mean(rmse, na.rm = T),
+            rmse_sd = sd(rmse, na.rm = T))
+
+
+pred_acc_by_cond_full <- pred_acc_by_subj_full %>%
+  group_by(dataset, condition) %>%
+  summarise(correlation_mean = mean(correlation, na.rm = T),
+            correlation_sd = sd(correlation, na.rm = T),
+            rmse_mean = mean(rmse, na.rm = T),
+            rmse_sd = sd(rmse, na.rm = T))
+
+```
+## Cutoff dataset
+
+```{r}
+final_alpha_2_cutoff %>%
+  ggplot(aes(x = prediction, y = final_alpha, colour = condition)) +
+  facet_grid(dataset ~ condition) +
+  geom_hline(yintercept = 0.3, lty = 2) +
+  geom_vline(xintercept = 0.3, lty = 2) +
+  geom_abline(slope = 1, intercept = 0, lty = 3, alpha = 0.75) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", colour = "black") +
+  geom_text(aes(label = paste("RMSE =", formatC(rmse_mean, digits = 3, flag = "#"))), x = max(final_alpha_2_cutoff$final_alpha), y = min(final_alpha_lab_2$final_alpha), hjust = 1, colour = "black", size = 3.5, data = pred_acc_by_cond_cutoff) +
+  coord_fixed(ratio = 1) +
+  scale_x_continuous(limits = range(final_alpha_2_cutoff$final_alpha)) +
+  scale_y_continuous(limits = range(final_alpha_2_cutoff$final_alpha)) +
+  scale_colour_brewer(type = "qual", palette = 7) +
+  guides(colour = FALSE) +
+  labs(x = "Predicted rate of forgetting",
+       y = "Observed rate of forgetting")
+
+ggsave("../output/prediction_rmse_cutoff.pdf", device = "pdf", width = 10, height = 6)
+```
+
+```{r}
+ggplot(pred_acc_by_subj_cutoff, aes(x = condition, y = rmse)) +
+  facet_grid(dataset ~ .) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.5, aes(colour = condition)) +
+  geom_violin(fill = NA) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  scale_colour_brewer(type = "qual", palette = 7) +
+  labs(x = NULL,
+       y = "Root-mean-square error")
+```
+
+
+Prediction accuracy looks to be higher in the conditions involving prediction than in the default condition, which is as expected.
+The combined fact-and-student distribution seems to create the most accurate predictions in the lab data; the learner prediction seems to be most accurate in the MTurk data.
+
+We test the effect of condition on the prediction accuracy (RMSE) with a Bayesian ANOVA, which includes an interaction with population to test H5 (no effect of population):
+```{r}
+bf_pred_acc <- anovaBF(
+  rmse ~ condition * dataset,
+  data = pred_acc_by_subj_cutoff,
+  progress = FALSE
+)
+```
+
+Evidence for this model over a null model (no effect of condition or dataset):
+```{r}
+bf_pred_acc
+```
+
+```{r}
+plot(bf_pred_acc)
+```
+
+There is evidence for an overall effect of dataset, so we repeat the analysis separately for each population.
+
+In the lab data there is only weak evidence for an effect of condition on the prediction accuracy (RMSE), so this will not be followed up further:
+```{r}
+bf_pred_acc_lab <- anovaBF(
+  rmse ~ condition,
+  data = filter(pred_acc_by_subj_cutoff, dataset == "Lab"),
+  progress = FALSE
+)
+
+bf_pred_acc_lab
+```
+
+In the MTurk data there is evidence against an effect of condition on the prediction accuracy (RMSE), so this will also not be followed up further:
+```{r}
+bf_pred_acc_mturk <- anovaBF(
+  rmse ~ condition,
+  data = filter(pred_acc_by_subj_cutoff, dataset == "MTurk"),
+  progress = FALSE
+)
+
+bf_pred_acc_mturk
+1/bf_pred_acc_mturk
+```
+
+**Conclusion: weak/no effect of condition on prediction accuracy (RMSE), but overall difference between populations.**
+
+## Full dataset
+
+```{r}
+final_alpha_2_full %>%
+  ggplot(aes(x = prediction, y = final_alpha, colour = condition)) +
+  facet_grid(dataset ~ condition) +
+  geom_hline(yintercept = 0.3, lty = 2) +
+  geom_vline(xintercept = 0.3, lty = 2) +
+  geom_abline(slope = 1, intercept = 0, lty = 3, alpha = 0.75) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", colour = "black") +
+  geom_text(aes(label = paste("RMSE =", formatC(rmse_mean, digits = 3, flag = "#"))), x = max(final_alpha_2_full$final_alpha), y = min(final_alpha_2_full$final_alpha), hjust = 1, colour = "black", size = 3.5, data = pred_acc_by_cond_full) +
+  coord_fixed(ratio = 1) +
+  scale_x_continuous(limits = range(final_alpha_2_full$final_alpha)) +
+  scale_y_continuous(limits = range(final_alpha_2_full$final_alpha)) +
+  scale_colour_brewer(type = "qual", palette = 7) +
+  guides(colour = FALSE) +
+  labs(x = "Predicted rate of forgetting",
+       y = "Observed rate of forgetting")
+
+ggsave("../output/prediction_rmse_full.pdf", device = "pdf", width = 10, height = 6)
+```
+
+Make the plot shown in the paper:
+```{r}
+final_alpha_2_full_tex <- final_alpha_2_full
+levels(final_alpha_2_full_tex$condition)[5] <- "Fact \\& Learner"
+
+pred_acc_by_cond_full_tex <- pred_acc_by_cond_full
+levels(pred_acc_by_cond_full_tex$condition)[5] <- "Fact \\& Learner"
+
+tikz(file = "../output/prediction_rmse_full.tex", width = 6, height = 3.5)
+
+final_alpha_2_full_tex %>%
+  ggplot(aes(x = prediction, y = final_alpha, colour = condition)) +
+  facet_grid(dataset ~ condition) +
+  geom_hline(yintercept = 0.3, lty = 2) +
+  geom_vline(xintercept = 0.3, lty = 2) +
+  geom_abline(slope = 1, intercept = 0, lty = 3, alpha = 0.75) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", colour = "black") +
+  geom_text(aes(label = paste("RMSE =", formatC(rmse_mean, digits = 3, flag = "#"))), x = max(final_alpha_2_full_tex$final_alpha), y = min(final_alpha_2_full_tex$final_alpha), hjust = 1, colour = "black", size = rel(2), data = pred_acc_by_cond_full_tex) +
+  coord_fixed(ratio = 1) +
+  scale_x_continuous(limits = range(final_alpha_2_full_tex$final_alpha)) +
+  scale_y_continuous(limits = range(final_alpha_2_full_tex$final_alpha)) +
+  scale_colour_brewer(type = "qual", palette = 7) +
+  guides(colour = FALSE) +
+  labs(x = "Predicted rate of forgetting",
+       y = "Observed rate of forgetting") +
+  theme_light()
+
+dev.off()
+```
+
+
+```{r}
+ggplot(pred_acc_by_subj_cutoff, aes(x = condition, y = rmse)) +
+  facet_grid(dataset ~ .) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.5, aes(colour = condition)) +
+  geom_violin(fill = NA) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  scale_colour_brewer(type = "qual", palette = 7) +
+  labs(x = NULL,
+       y = "Root-mean-square error")
+```
+
+Repeating the test on the full dataset:
+
+```{r}
+bf_pred_acc_full <- anovaBF(
+  rmse ~ condition * dataset,
+  data = pred_acc_by_subj_full,
+  progress = FALSE
+)
+```
+
+Evidence for this model over a null model (no effect of condition or dataset):
+```{r}
+bf_pred_acc_full
+```
+
+```{r}
+plot(bf_pred_acc_full)
+max(bf_pred_acc_full)/bf_pred_acc_full
+```
+
+
+There is once again evidence for an overall effect of dataset, so we repeat the analysis separately for each population.
+
+In the lab data there is still only weak evidence for an effect of condition on the prediction accuracy (RMSE), so this will not be followed up further:
+```{r}
+bf_pred_acc_lab_full <- anovaBF(
+  rmse ~ condition,
+  data = filter(pred_acc_by_subj_full, dataset == "Lab"),
+  progress = FALSE
+)
+
+bf_pred_acc_lab_full
+```
+
+In the MTurk data there is now also weak evidence in favour of an effect of condition on the prediction accuracy (RMSE):
+```{r}
+bf_pred_acc_mturk_full <- anovaBF(
+  rmse ~ condition,
+  data = filter(pred_acc_by_subj_full, dataset == "MTurk"),
+  progress = FALSE
+)
+
+bf_pred_acc_mturk_full
+```
+
+**Conclusion: weak effect of condition on prediction accuracy (RMSE), and overall difference between populations.**
+
+
+---
+# Exploratory: pair-wise comparisons
+Although this analysis was not preregistered, the hypothesis did specify that we expected fact-and-learner predictions to be more accurate than fact-only or learner-only predictions.
+This can be tested with two pairwise comparisons using one-sided t-tests.
+
+
+## Fact & Learner vs. Fact or Learner
+Hypothesis 2 is specifically about the contrast between the Fact & Learner condition on the one hand and the Fact condition and Learner condition on the other, so conduct a t-test for this difference.
+
+Combined data:
+```{r}
+fully_individual_ttest <- ttestBF(filter(pred_acc_by_subj_full, condition == "Fact & Learner")$rmse,
+        filter(pred_acc_by_subj_full, condition %in% c("Fact", "Learner"))$rmse,
+        nullInterval=c(-Inf, 0))
+
+fully_individual_ttest
+1/fully_individual_ttest
+plot(fully_individual_ttest)
+```
+
+
+Separated by population:
+```{r}
+ttestBF(filter(pred_acc_by_subj_full, dataset == "Lab", condition == "Fact & Learner")$rmse,
+        filter(pred_acc_by_subj_full, dataset == "Lab", condition %in% c("Fact", "Learner"))$rmse,
+        nullInterval=c(-Inf, 0))
+ttestBF(filter(pred_acc_by_subj_full, dataset == "MTurk", condition == "Fact & Learner")$rmse,
+        filter(pred_acc_by_subj_full, dataset == "MTurk", condition %in% c("Fact", "Learner"))$rmse,
+        nullInterval=c(-Inf, 0))
+
+```
+
+
+## Domain vs. Fact and/or Learner
+
+Combined data:
+```{r}
+individual_ttest <- ttestBF(filter(pred_acc_by_subj_full, condition %in% c("Fact & Learner", "Fact", "Learner"))$rmse,
+        filter(pred_acc_by_subj_full, condition == "Domain")$rmse,
+        nullInterval=c(-Inf, 0))
+
+individual_ttest
+1/individual_ttest
+plot(individual_ttest)
+```
+
+```{r}
+ttestBF(filter(pred_acc_by_subj_full, dataset == "Lab", condition %in% c("Fact & Learner", "Fact", "Learner"))$rmse,
+        filter(pred_acc_by_subj_full, dataset == "Lab", condition == "Domain")$rmse,
+        nullInterval=c(-Inf, 0))
+ttestBF(filter(pred_acc_by_subj_full, dataset == "MTurk", condition %in% c("Fact & Learner", "Fact", "Learner"))$rmse,
+        filter(pred_acc_by_subj_full, dataset == "MTurk", condition == "Domain")$rmse,
+        nullInterval=c(-Inf, 0))
+```
+
+
+---
+
+# Exploratory: adaptation vs. no adaptation
+As with H1, we are also interested if *any* kind of adaptation actually improves predictions compared to using the default prediction of 0.3.
+
+```{r}
+pred_acc_by_subj_full <- mutate(pred_acc_by_subj_full, adaptation = as.factor(condition != "Default"))
+```
+
+```{r}
+bf_pred_acc_full_adaptation <- anovaBF(
+  rmse ~ adaptation * dataset,
+  data = filter(pred_acc_by_subj_full),
+  progress = FALSE
+)
+
+bf_pred_acc_full_adaptation
+```
+```{r}
+plot(bf_pred_acc_full_adaptation)
+```
+
+The effect of adaptation is also present if we split by population.
+
+Lab:
+```{r}
+bf_pred_acc_lab_full_adaptation <- anovaBF(
+  rmse ~ adaptation,
+  data = filter(pred_acc_by_subj_full, dataset == "Lab"),
+  progress = FALSE
+)
+
+bf_pred_acc_lab_full_adaptation
+```
+
+MTurk:
+```{r}
+bf_pred_acc_mturk_full_adaptation <- anovaBF(
+  rmse ~ adaptation,
+  data = filter(pred_acc_by_subj_full, dataset == "MTurk"),
+  progress = FALSE
+)
+
+bf_pred_acc_mturk_full_adaptation
+```
+
+
+**Conclusion: there is evidence for an effect of adaptation in general in both datasets.**
+
+
+---
+
+# Session information
+```{r}
+sessionInfo()
+```
+
+ 
+

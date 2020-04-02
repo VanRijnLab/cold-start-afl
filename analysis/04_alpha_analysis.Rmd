@@ -21,12 +21,21 @@ library(ggplot2)
 library(purrr)
 library(scales)
 library(tidyr)
+library(wesanderson)
 library(tikzDevice)
 library(fst)
 
 theme_set(theme_bw())
 
+theme_paper <- theme_bw() + 
+  theme(axis.text = element_text(colour = "black"))
+
+condition_colours <- wes_palette("Darjeeling1", n = 5)
+condition_colours[c(2, 4, 5)] <- condition_colours[c(4, 5, 2)]
+
 source("bayes_funs.R")
+
+set.seed(0)
 ```
 
 ---
@@ -65,7 +74,7 @@ The plot below shows for all 30 facts how the posterior predictive distribution 
 
 ```{r, fig.height=8}
 fact_res <- alpha %>%
-  nest(-fact_id) %>%
+  nest_legacy(-fact_id) %>%
   mutate(res = map(data, ~ run_bayes_model_incremental(.$final_alpha)))
 
 par(mfrow = c(6,5), mar = c(1,1,1,1), cex = 1)
@@ -78,7 +87,7 @@ The peak of each posterior predicitive distribution (i.e., its mean) is used as 
 How are these values distributed?
 ```{r}
 estimates_lab <- fact_res %>%
-  unnest(res) %>% 
+  unnest_legacy(res) %>% 
   group_by(fact_id) %>%
   slice(n())
 
@@ -149,7 +158,7 @@ for (i in 1:n_sim) {
   
   fact_res_perm[[i]] <- alpha %>%
     sample_frac() %>%
-    nest(-fact_id) %>%
+    nest_legacy(-fact_id) %>%
     mutate(iteration = i,
            res = map(data, ~ run_bayes_model_incremental(.$final_alpha))) %>%
     select(iteration, fact_id, res)
@@ -168,7 +177,7 @@ This is a different way of showing the uncertainty in the final posterior predic
 
 ```{r, fig.height=8}
 fact_res_perm_plotdat <- fact_res_perm %>%
-  unnest() %>%
+  unnest_legacy() %>%
   group_by(iteration, fact_id) %>%
   mutate(observation = 1:n()) %>%
   ungroup() %>%
@@ -276,7 +285,7 @@ The plot below shows for all 30 facts how the posterior predictive distribution 
 
 ```{r, fig.height=8}
 fact_res_m <- alpha_m %>%
-  nest(-fact_id) %>%
+  nest_legacy(-fact_id) %>%
   mutate(res = map(data, ~ run_bayes_model_incremental(.$final_alpha)))
 
 par(mfrow = c(6,5), mar = c(1,1,1,1), cex = 1)
@@ -289,7 +298,7 @@ The peak of each posterior predicitive distribution (i.e., its mean) is used as 
 How are these values distributed?
 ```{r}
 estimates_mturk <- fact_res_m %>%
-  unnest(res) %>% 
+  unnest_legacy(res) %>% 
   group_by(fact_id) %>%
   slice(n())
 
@@ -358,7 +367,7 @@ for (i in 1:n_sim) {
   
   fact_res_m_perm[[i]] <- alpha_m %>%
     sample_frac() %>%
-    nest(-fact_id) %>%
+    nest_legacy(-fact_id) %>%
     mutate(iteration = i,
            res = map(data, ~ run_bayes_model_incremental(.$final_alpha))) %>%
     select(iteration, fact_id, res)
@@ -373,7 +382,7 @@ fact_res_m_perm <- bind_rows(fact_res_m_perm) %>%
 
 ```{r, fig.height=8}
 fact_res_m_perm_plotdat <- fact_res_m_perm %>%
-  unnest() %>%
+  unnest_legacy() %>%
   group_by(iteration, fact_id) %>%
   mutate(observation = 1:n()) %>%
   ungroup() %>%
@@ -442,8 +451,6 @@ fact_res_m_perm_plotdat_delta %>%
 
 Plot of fact alpha predictions:
 ```{r}
-theme_set(theme_light(base_size = 14))
-
 predictions <- bind_rows(mutate(estimates_lab, dataset = "Lab"),
                          mutate(estimates_mturk, dataset = "MTurk")) %>%
   group_by(fact_id) %>%
@@ -455,7 +462,9 @@ domain_predictions <- predictions %>%
   summarise(mu_n = mean(mu_n))
 
 source("geom_flat_violin.R")
+```
 
+```{r}
 predictions_plot <- ggplot(predictions, aes(y = mu_n, x = dataset)) +
   geom_hline(yintercept = 0.3, lty = 2) +
   geom_flat_violin_mirrored(data = filter(predictions, dataset == "Lab"), scale = "width", width = 0.8) +
@@ -467,20 +476,52 @@ predictions_plot <- ggplot(predictions, aes(y = mu_n, x = dataset)) +
   scale_color_viridis_d() +
   scale_y_continuous(limits = c(0.225, 0.50), breaks = c(0.25, 0.30, 0.35, 0.40, 0.45, 0.50), minor_breaks = NULL) +
   labs(x = NULL,
-       y = "Predicted rate of forgetting")
+       y = "Predicted rate of forgetting") +
+  theme_paper
 
 predictions_plot
-ggsave("../output/session1/predictions_dist_fact.pdf", device = "pdf", width = 2.5, height = 3)
+ggsave("../output/predictions_dist_fact.pdf", device = "pdf", width = 2.5, height = 3)
 
 
-tikz(file ="../output/session1/predictions_dist_fact.tex", width = 2.5, height = 3)
-predictions_plot +
-  theme_light()
+tikz(file ="../output/predictions_dist_fact.tex", width = 2.5, height = 3)
+predictions_plot
 dev.off()
 
 
 domain_predictions
 ```
+
+Also draw as a correlation plot:
+
+```{r}
+predictions_corr_plot <- predictions %>%
+  select(fact_id, dataset, mu_n) %>%
+  spread(dataset, mu_n) %>%
+  ggplot(aes(x = Lab, y = MTurk)) +
+  # geom_hline(yintercept = 0.3, lty = 2) +
+  geom_hline(yintercept = domain_predictions$mu_n[2], lty = 2) +
+  # geom_vline(xintercept = 0.3, lty = 2) +
+  geom_vline(xintercept = domain_predictions$mu_n[1], lty = 2) +
+  geom_abline(slope = 1, intercept = 0, lty = 3, alpha = 0.75) +
+  geom_point(alpha = 0.5) +
+  coord_fixed(ratio = 1) +
+  scale_x_continuous(limits = c(0.225, 0.45), breaks = c(0.25, 0.30, 0.35, 0.40, 0.45), minor_breaks = NULL) +
+  scale_y_continuous(limits = c(0.225, 0.45), breaks = c(0.25, 0.30, 0.35, 0.40, 0.45), minor_breaks = NULL) +
+  labs(x = "Predicted rate of forgetting: Lab",
+       y = "Predicted rate of forgetting: MTurk") +
+  theme_paper
+
+predictions_corr_plot
+
+predictions_corr_plot_marginals <- ggExtra::ggMarginal(predictions_corr_plot, type = "density", size = 7, colour = "black", fill = "grey")
+
+
+tikz(file ="../output/predictions_corr_fact.tex", width = 3, height = 3)
+predictions_corr_plot_marginals
+dev.off()
+```
+
+
 
 Spearman rank correlation:
 ```{r}

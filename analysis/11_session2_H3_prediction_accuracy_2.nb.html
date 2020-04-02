@@ -340,7 +340,7 @@ div.tocify {
 
 <h1 class="title toc-ignore">Test of H3: There is additional predictive value in modelling rate of forgetting at the level of the individual learner and/or item relative to modelling rate of forgetting at the domain level</h1>
 <h4 class="author">Maarten van der Velde</h4>
-<h4 class="date">Last updated: 2019-07-15 12:50:02</h4>
+<h4 class="date">Last updated: 2020-04-02 15:00:21</h4>
 
 </div>
 
@@ -402,13 +402,13 @@ library(readr)
 library(stringr)
 library(tidyr)</code></pre>
 <!-- rnb-source-end -->
-<!-- rnb-output-begin eyJkYXRhIjoiXG5BdHRhY2hpbmcgcGFja2FnZTog4oCYdGlkeXLigJlcblxuVGhlIGZvbGxvd2luZyBvYmplY3QgaXMgbWFza2VkIGZyb20g4oCYcGFja2FnZTpNYXRyaXjigJk6XG5cbiAgICBleHBhbmRcbiJ9 -->
+<!-- rnb-output-begin eyJkYXRhIjoiXG5BdHRhY2hpbmcgcGFja2FnZTog4oCYdGlkeXLigJlcblxuVGhlIGZvbGxvd2luZyBvYmplY3RzIGFyZSBtYXNrZWQgZnJvbSDigJhwYWNrYWdlOk1hdHJpeOKAmTpcblxuICAgIGV4cGFuZCwgcGFjaywgdW5wYWNrXG4ifQ== -->
 <pre><code>
 Attaching package: ‘tidyr’
 
-The following object is masked from ‘package:Matrix’:
+The following objects are masked from ‘package:Matrix’:
 
-    expand</code></pre>
+    expand, pack, unpack</code></pre>
 <!-- rnb-output-end -->
 <!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShmc3QpXG5gYGAifQ== -->
 <pre class="r"><code>library(fst)</code></pre>
@@ -574,10 +574,10 @@ Bayes factor type: BFindepSample, JZS</code></pre>
 <!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuc2Vzc2lvbkluZm8oKVxuYGBgIn0= -->
 <pre class="r"><code>sessionInfo()</code></pre>
 <!-- rnb-source-end -->
-<!-- rnb-output-begin eyJkYXRhIjoiUiB2ZXJzaW9uIDMuNi4xICgyMDE5LTA3LTA1KVxuUGxhdGZvcm06IHg4Nl82NC1wYy1saW51eC1nbnUgKDY0LWJpdClcblJ1bm5pbmcgdW5kZXI6IFVidW50dSAxOC4wNC4yIExUU1xuXG5NYXRyaXggcHJvZHVjdHM6IGRlZmF1bHRcbkJMQVM6ICAgL3Vzci9saWIveDg2XzY0LWxpbnV4LWdudS9ibGFzL2xpYmJsYXMuc28uMy43LjFcbkxBUEFDSzogL3Vzci9saWIveDg2XzY0LWxpbnV4LWdudS9sYXBhY2svbGlibGFwYWNrLnNvLjMuNy4xXG5cbmxvY2FsZTpcbiBbMV0gTENfQ1RZUEU9ZW5fR0IuVVRGLTggICAgICAgTENfTlVNRVJJQz1DICAgICAgICAgICAgICAgTENfVElNRT1ubF9OTC5VVEYtOCAgICAgICAgTENfQ09MTEFURT1lbl9HQi5VVEYtOCAgICAgTENfTU9ORVRBUlk9bmxfTkwuVVRGLTggICAgTENfTUVTU0FHRVM9ZW5fR0IuVVRGLTggICBcbiBbN10gTENfUEFQRVI9bmxfTkwuVVRGLTggICAgICAgTENfTkFNRT1DICAgICAgICAgICAgICAgICAgTENfQUREUkVTUz1DICAgICAgICAgICAgICAgTENfVEVMRVBIT05FPUMgICAgICAgICAgICAgTENfTUVBU1VSRU1FTlQ9bmxfTkwuVVRGLTggTENfSURFTlRJRklDQVRJT049QyAgICAgICBcblxuYXR0YWNoZWQgYmFzZSBwYWNrYWdlczpcblsxXSBzdGF0cyAgICAgZ3JhcGhpY3MgIGdyRGV2aWNlcyB1dGlscyAgICAgZGF0YXNldHMgIG1ldGhvZHMgICBiYXNlICAgICBcblxub3RoZXIgYXR0YWNoZWQgcGFja2FnZXM6XG4gWzFdIGZzdF8wLjkuMCAgICAgICAgICAgICAgdGlkeXJfMC44LjMgICAgICAgICAgICBzdHJpbmdyXzEuNC4wICAgICAgICAgIHJlYWRyXzEuMy4xICAgICAgICAgICAgcHVycnJfMC4zLjIgICAgICAgICAgICBnZ3Bsb3QyXzMuMS4xICAgICAgICAgIGRwbHlyXzAuOC4wLjEgICAgICAgICBcbiBbOF0gQmF5ZXNGYWN0b3JfMC45LjEyLTQuMiBNYXRyaXhfMS4yLTE3ICAgICAgICAgIGNvZGFfMC4xOS0yICAgICAgICAgICBcblxubG9hZGVkIHZpYSBhIG5hbWVzcGFjZSAoYW5kIG5vdCBhdHRhY2hlZCk6XG4gWzFdIFJjcHBfMS4wLjEgICAgICAgICBwaWxsYXJfMS40LjAgICAgICAgY29tcGlsZXJfMy42LjEgICAgIHBseXJfMS44LjQgICAgICAgICB0b29sc18zLjYuMSAgICAgICAgdGliYmxlXzIuMS4xICAgICAgIGd0YWJsZV8wLjMuMCAgICAgICBsYXR0aWNlXzAuMjAtMzggICBcbiBbOV0gcGtnY29uZmlnXzIuMC4yICAgIHJsYW5nXzAuMy40ICAgICAgICByc3R1ZGlvYXBpXzAuMTAgICAgeWFtbF8yLjIuMCAgICAgICAgIHBhcmFsbGVsXzMuNi4xICAgICBtdnRub3JtXzEuMC0xMCAgICAgeGZ1bl8wLjYgICAgICAgICAgIHdpdGhyXzIuMS4yICAgICAgIFxuWzE3XSBrbml0cl8xLjIyICAgICAgICAgaG1zXzAuNC4yICAgICAgICAgIGd0b29sc18zLjguMSAgICAgICBNYXRyaXhNb2RlbHNfMC40LTEgZ3JpZF8zLjYuMSAgICAgICAgIHRpZHlzZWxlY3RfMC4yLjUgICBnbHVlXzEuMy4xICAgICAgICAgUjZfMi40LjAgICAgICAgICAgXG5bMjVdIHBiYXBwbHlfMS40LTAgICAgICBtYWdyaXR0cl8xLjUgICAgICAgc2NhbGVzXzEuMC4wICAgICAgIGFzc2VydHRoYXRfMC4yLjEgICBjb2xvcnNwYWNlXzEuNC0xICAgc3RyaW5naV8xLjQuMyAgICAgIGxhenlldmFsXzAuMi4yICAgICBtdW5zZWxsXzAuNS4wICAgICBcblszM10gY3JheW9uXzEuMy40ICAgICAgXG4ifQ== -->
-<pre><code>R version 3.6.1 (2019-07-05)
+<!-- rnb-output-begin eyJkYXRhIjoiUiB2ZXJzaW9uIDMuNi4zICgyMDIwLTAyLTI5KVxuUGxhdGZvcm06IHg4Nl82NC1wYy1saW51eC1nbnUgKDY0LWJpdClcblJ1bm5pbmcgdW5kZXI6IFVidW50dSAxOC4wNC40IExUU1xuXG5NYXRyaXggcHJvZHVjdHM6IGRlZmF1bHRcbkJMQVM6ICAgL3Vzci9saWIveDg2XzY0LWxpbnV4LWdudS9ibGFzL2xpYmJsYXMuc28uMy43LjFcbkxBUEFDSzogL3Vzci9saWIveDg2XzY0LWxpbnV4LWdudS9sYXBhY2svbGlibGFwYWNrLnNvLjMuNy4xXG5cbmxvY2FsZTpcbiBbMV0gTENfQ1RZUEU9ZW5fR0IuVVRGLTggICAgICAgTENfTlVNRVJJQz1DICAgICAgICAgICAgICAgTENfVElNRT1ubF9OTC5VVEYtOCAgICAgICAgTENfQ09MTEFURT1lbl9HQi5VVEYtOCAgICAgTENfTU9ORVRBUlk9bmxfTkwuVVRGLTggICAgTENfTUVTU0FHRVM9ZW5fR0IuVVRGLTggICBcbiBbN10gTENfUEFQRVI9bmxfTkwuVVRGLTggICAgICAgTENfTkFNRT1DICAgICAgICAgICAgICAgICAgTENfQUREUkVTUz1DICAgICAgICAgICAgICAgTENfVEVMRVBIT05FPUMgICAgICAgICAgICAgTENfTUVBU1VSRU1FTlQ9bmxfTkwuVVRGLTggTENfSURFTlRJRklDQVRJT049QyAgICAgICBcblxuYXR0YWNoZWQgYmFzZSBwYWNrYWdlczpcblsxXSBzdGF0cyAgICAgZ3JhcGhpY3MgIGdyRGV2aWNlcyB1dGlscyAgICAgZGF0YXNldHMgIG1ldGhvZHMgICBiYXNlICAgICBcblxub3RoZXIgYXR0YWNoZWQgcGFja2FnZXM6XG4gWzFdIGZzdF8wLjkuMCAgICAgICAgICAgICAgdGlkeXJfMS4wLjIgICAgICAgICAgICBzdHJpbmdyXzEuNC4wICAgICAgICAgIHJlYWRyXzEuMy4xICAgICAgICAgICAgcHVycnJfMC4zLjIgICAgICAgICAgICBnZ3Bsb3QyXzMuMS4xICAgICAgICAgIGRwbHlyXzAuOC41ICAgICAgICAgICBcbiBbOF0gQmF5ZXNGYWN0b3JfMC45LjEyLTQuMiBNYXRyaXhfMS4yLTE4ICAgICAgICAgIGNvZGFfMC4xOS0yICAgICAgICAgICBcblxubG9hZGVkIHZpYSBhIG5hbWVzcGFjZSAoYW5kIG5vdCBhdHRhY2hlZCk6XG4gWzFdIFJjcHBfMS4wLjEgICAgICAgICBwaWxsYXJfMS40LjAgICAgICAgY29tcGlsZXJfMy42LjMgICAgIHBseXJfMS44LjQgICAgICAgICB0b29sc18zLjYuMyAgICAgICAgbGlmZWN5Y2xlXzAuMi4wICAgIHRpYmJsZV8yLjEuMSAgICAgICBndGFibGVfMC4zLjAgICAgICBcbiBbOV0gbGF0dGljZV8wLjIwLTQwICAgIHBrZ2NvbmZpZ18yLjAuMiAgICBybGFuZ18wLjQuNSAgICAgICAgcnN0dWRpb2FwaV8wLjEwICAgIHlhbWxfMi4yLjAgICAgICAgICBwYXJhbGxlbF8zLjYuMyAgICAgbXZ0bm9ybV8xLjAtMTAgICAgIHhmdW5fMC42ICAgICAgICAgIFxuWzE3XSB3aXRocl8yLjEuMiAgICAgICAga25pdHJfMS4yMiAgICAgICAgIGhtc18wLjQuMiAgICAgICAgICB2Y3Ryc18wLjIuNCAgICAgICAgZ3Rvb2xzXzMuOC4xICAgICAgIE1hdHJpeE1vZGVsc18wLjQtMSBncmlkXzMuNi4zICAgICAgICAgdGlkeXNlbGVjdF8wLjIuNSAgXG5bMjVdIGRhdGEudGFibGVfMS4xMi42ICBnbHVlXzEuMy4xICAgICAgICAgUjZfMi40LjAgICAgICAgICAgIHBiYXBwbHlfMS40LTAgICAgICBtYWdyaXR0cl8xLjUgICAgICAgc2NhbGVzXzEuMC4wICAgICAgIGFzc2VydHRoYXRfMC4yLjEgICBjb2xvcnNwYWNlXzEuNC0xICBcblszM10gc3RyaW5naV8xLjQuMyAgICAgIGxhenlldmFsXzAuMi4yICAgICBtdW5zZWxsXzAuNS4wICAgICAgY3JheW9uXzEuMy40ICAgICAgXG4ifQ== -->
+<pre><code>R version 3.6.3 (2020-02-29)
 Platform: x86_64-pc-linux-gnu (64-bit)
-Running under: Ubuntu 18.04.2 LTS
+Running under: Ubuntu 18.04.4 LTS
 
 Matrix products: default
 BLAS:   /usr/lib/x86_64-linux-gnu/blas/libblas.so.3.7.1
@@ -591,15 +591,15 @@ attached base packages:
 [1] stats     graphics  grDevices utils     datasets  methods   base     
 
 other attached packages:
- [1] fst_0.9.0              tidyr_0.8.3            stringr_1.4.0          readr_1.3.1            purrr_0.3.2            ggplot2_3.1.1          dplyr_0.8.0.1         
- [8] BayesFactor_0.9.12-4.2 Matrix_1.2-17          coda_0.19-2           
+ [1] fst_0.9.0              tidyr_1.0.2            stringr_1.4.0          readr_1.3.1            purrr_0.3.2            ggplot2_3.1.1          dplyr_0.8.5           
+ [8] BayesFactor_0.9.12-4.2 Matrix_1.2-18          coda_0.19-2           
 
 loaded via a namespace (and not attached):
- [1] Rcpp_1.0.1         pillar_1.4.0       compiler_3.6.1     plyr_1.8.4         tools_3.6.1        tibble_2.1.1       gtable_0.3.0       lattice_0.20-38   
- [9] pkgconfig_2.0.2    rlang_0.3.4        rstudioapi_0.10    yaml_2.2.0         parallel_3.6.1     mvtnorm_1.0-10     xfun_0.6           withr_2.1.2       
-[17] knitr_1.22         hms_0.4.2          gtools_3.8.1       MatrixModels_0.4-1 grid_3.6.1         tidyselect_0.2.5   glue_1.3.1         R6_2.4.0          
-[25] pbapply_1.4-0      magrittr_1.5       scales_1.0.0       assertthat_0.2.1   colorspace_1.4-1   stringi_1.4.3      lazyeval_0.2.2     munsell_0.5.0     
-[33] crayon_1.3.4      </code></pre>
+ [1] Rcpp_1.0.1         pillar_1.4.0       compiler_3.6.3     plyr_1.8.4         tools_3.6.3        lifecycle_0.2.0    tibble_2.1.1       gtable_0.3.0      
+ [9] lattice_0.20-40    pkgconfig_2.0.2    rlang_0.4.5        rstudioapi_0.10    yaml_2.2.0         parallel_3.6.3     mvtnorm_1.0-10     xfun_0.6          
+[17] withr_2.1.2        knitr_1.22         hms_0.4.2          vctrs_0.2.4        gtools_3.8.1       MatrixModels_0.4-1 grid_3.6.3         tidyselect_0.2.5  
+[25] data.table_1.12.6  glue_1.3.1         R6_2.4.0           pbapply_1.4-0      magrittr_1.5       scales_1.0.0       assertthat_0.2.1   colorspace_1.4-1  
+[33] stringi_1.4.3      lazyeval_0.2.2     munsell_0.5.0      crayon_1.3.4      </code></pre>
 <!-- rnb-output-end -->
 <!-- rnb-chunk-end -->
 </div>

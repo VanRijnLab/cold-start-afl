@@ -39,14 +39,21 @@ library(tikzDevice)
 library(fst)
 
 # font_import() # Run once to populate the R font database with the fonts on the system
-
 loadfonts(quiet = TRUE)
 
-theme_set(theme_light(base_size = 14) +
+theme_poster <- theme_light(base_size = 14) +
             theme(text = element_text(family = 'Merriweather Sans'),
-                  strip.text = element_text(colour = "black")))
+                  strip.text = element_text(colour = "black")) 
 
-knitr::opts_chunk$set(fig.width=16, fig.height=16) 
+theme_paper <- theme_bw() + 
+  theme(axis.text = element_text(colour = "black"))
+
+condition_colours <- wes_palette("Darjeeling1", n = 5)
+condition_colours[c(2, 4, 5)] <- condition_colours[c(4, 5, 2)]
+
+knitr::opts_chunk$set(fig.width=16, fig.height=16)
+
+set.seed(0)
 ```
 ## Load data
 ```{r}
@@ -167,22 +174,6 @@ block2_cutoff_stats %>%
 ```
 
 
-```{r fig.width=12}
-ggplot(block2_cutoff_stats, aes(y = unique_items, x = condition, group = condition)) +
-  geom_jitter(width = 0.1, height = 0, alpha = 0.5, aes(colour = condition)) +
-  geom_violin(fill = NA) +
-  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
-  guides(colour = FALSE) +
-  expand_limits(y = 0) +
-  scale_colour_brewer(type = "qual", palette = 7) +
-  labs(x = NULL,
-       y = "Number of unique facts")
-
-ggsave("../output/number-of-facts-session2-cutoff-simple.pdf", device = "pdf", width = 5, height = 3)
-```
-
-
-
 We test the effect of condition on the number of unique items with a Bayesian ANOVA, which includes an interaction with dataset to address H5 (no effect of population):
 ```{r}
 bf_items <- anovaBF(
@@ -239,34 +230,8 @@ plot(bf_items_full)
 
 Make the plot shown on the poster (lab data only):
 ```{r}
-condition_colours <- wes_palette("Darjeeling1", n = 5)
-condition_colours[c(2, 4, 5)] <- condition_colours[c(4, 5, 2)]
-
 block2_full_stats %>%
   filter(dataset == "Lab") %>%
-  ggplot(aes(y = unique_items, x = condition, group = condition)) +
-  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
-  geom_violin(fill = NA, width = 0.75) +
-  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
-  guides(colour = FALSE) +
-  expand_limits(y = 0) +
-  # scale_colour_brewer(type = "qual", palette = 7) +
-  scale_colour_manual(values = condition_colours) +
-  labs(x = NULL,
-       y = "Facts studied")
-
-ggsave("../output/number-of-facts-session2-full-simple.pdf", device = "pdf", width = 5.75, height = 2)
-
-```
-
-Make the plot shown in the paper (both populations):
-```{r}
-block2_full_stats_tex <- block2_full_stats
-levels(block2_full_stats_tex$condition)[5] <- "Fact \\& Learner"
-
-tikz(file = "../output/number-of-facts-session2-full-simple.tex", width = 4.75, height = 2)
-
-block2_full_stats_tex %>%
   ggplot(aes(y = unique_items, x = condition, group = condition)) +
   geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
   geom_violin(fill = NA, width = 0.75) +
@@ -276,9 +241,33 @@ block2_full_stats_tex %>%
   scale_colour_manual(values = condition_colours) +
   labs(x = NULL,
        y = "Facts studied") +
-  theme_light()
+  theme_poster
 
+ggsave("../output/number-of-facts-session2-full-simple.pdf", device = "pdf", width = 5.75, height = 2)
+```
+
+Make the plot shown in the paper (both populations):
+```{r}
+block2_full_stats_tex <- block2_full_stats
+levels(block2_full_stats_tex$condition)[5] <- "Fact \\& Learner"
+
+p <- block2_full_stats_tex %>%
+  ggplot(aes(y = unique_items, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Facts studied") +
+  theme_paper
+
+tikz(file = "../output/number-of-facts-session2-full-simple.tex", width = 4.75, height = 2)
+p
 dev.off()
+
+p
 ```
 
 
@@ -310,21 +299,6 @@ test2_full_stats <- test2_full %>%
 test2_cutoff_stats %>%
   select(dataset, condition, subject, n_correct)
 ```
-
-```{r fig.width=12}
-ggplot(test2_cutoff_stats, aes(y = n_correct, x = condition, group = condition)) +
-  geom_jitter(width = 0.1, height = 0, alpha = 0.5, aes(colour = condition)) +
-  geom_violin(fill = NA) +
-  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
-  guides(colour = FALSE) +
-  expand_limits(y = 0) +
-  scale_colour_brewer(type = "qual", palette = 7) +
-  labs(x = NULL,
-       y = "Delayed recall test score")
-
-ggsave("../output/test-score-session2-cutoff-simple.pdf", device = "pdf", width = 5, height = 3)
-```
-
 
 We test the effect of condition on the test score with a Bayesian ANOVA, which includes an interaction with dataset to address H5 (no effect of population):
 ```{r}
@@ -381,6 +355,32 @@ plot(bf_testscore_full)
 
 **Conclusion: no change in the delayed recall test score.**
 
+Make the plot shown in the paper (both populations):
+```{r}
+test2_full_stats_tex <- test2_full_stats
+levels(test2_full_stats_tex$condition)[5] <- "Fact \\& Learner"
+
+
+p <- test2_full_stats_tex %>%
+  ggplot(aes(y = n_correct, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.5, aes(colour = condition)) +
+  geom_violin(fill = NA) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Delayed recall test score") +
+  theme_paper
+
+tikz(file = "../output/test-score-session2-full-simple.tex", width = 4.75, height = 2)
+p
+dev.off()
+
+p
+```
+
+
 ---
 
 
@@ -410,34 +410,13 @@ test2_full_stats %>%
   scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.2, 1)) +
   scale_colour_manual(values = condition_colours) +
   labs(x = NULL,
-       y = "Test accuracy")
+       y = "Test accuracy") +
+  theme_poster
 
 ggsave("../output/test-accuracy-session2-full-simple.pdf", device = "pdf", width = 5.75, height = 2)
-
 ```
 
 
-Make the plot shown in the paper (both populations):
-```{r}
-test2_full_stats_tex <- test2_full_stats
-levels(test2_full_stats_tex$condition)[5] <- "Fact \\& Learner"
-
-tikz(file = "../output/test-accuracy-session2-full-simple.tex", width = 4.75, height = 2)
-
-test2_full_stats_tex %>%
-  ggplot(aes(y = n_correct, x = condition, group = condition)) +
-  geom_jitter(width = 0.1, height = 0, alpha = 0.5, aes(colour = condition)) +
-  geom_violin(fill = NA) +
-  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
-  guides(colour = FALSE) +
-  expand_limits(y = 0) +
-  scale_colour_brewer(type = "qual", palette = 7) +
-  labs(x = NULL,
-       y = "Delayed recall test score") +
-  theme_light()
-
-dev.off()
-```
 
 ---
 
@@ -515,6 +494,78 @@ bf_testscore_adaptation_full
 
 ---
 
+
+# Exploratory: response accuracy during learning session
+
+```{r}
+bf_session_accuracy_full <- anovaBF(
+  accuracy ~ condition * dataset,
+  data = block2_full_stats,
+  progress = FALSE
+)
+```
+Evidence for this model over a null model (no effect of condition or dataset):
+```{r}
+bf_session_accuracy_full
+```
+
+Evidence for a null model (no effect of condition or dataset):
+```{r}
+1/bf_session_accuracy_full
+```
+
+```{r}
+plot(bf_session_accuracy_full)
+```
+
+**Conclusion: no change in the number of unique items studied.**
+
+
+
+
+
+Make the plot shown in the paper (both populations):
+```{r}
+p <- block2_full_stats_tex %>%
+  ggplot(aes(y = accuracy, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_colour_manual(values = condition_colours) +
+  scale_y_continuous(labels = scales::percent_format(suffix = "\\%")) +
+  labs(x = NULL,
+       y = "Response accuracy") +
+  theme_paper
+
+tikz(file = "../output/response-accuracy-session2-full-simple.tex", width = 4.75, height = 2)
+p
+dev.off()
+
+p
+```
+
+Follow-up t-test: is there an improvement going from the Default condition to any of the predictive conditions?
+```{r}
+predictive_ttest <- ttestBF(filter(block2_full_stats_tex, condition == "Default")$accuracy,
+                            filter(block2_full_stats_tex, condition %in% c("Fact & Learner", "Fact", "Learner", "Domain"))$accuracy,
+        nullInterval=c(-Inf, 0))
+
+predictive_ttest
+1/predictive_ttest
+plot(predictive_ttest)
+```
+Is accuracy higher with more individualised predictions than with Domain predictions?
+```{r}
+individualised_ttest <- ttestBF(filter(block2_full_stats_tex, condition == "Domain")$accuracy,
+                                filter(block2_full_stats_tex, condition %in% c("Fact & Learner", "Fact", "Learner"))$accuracy,
+                                nullInterval=c(-Inf, 0))
+
+individualised_ttest
+1/individualised_ttest
+plot(individualised_ttest)
+```
 
 
 # Session information

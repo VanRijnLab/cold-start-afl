@@ -34,13 +34,27 @@ library(purrr)
 library(readr)
 library(stringr)
 library(tidyr)
+library(extrafont)
+library(wesanderson)
 library(tikzDevice)
 library(fst)
 
-theme_set(theme_light(base_size = 14) +
-  theme(strip.text = element_text(colour = "black")))
+# font_import() # Run once to populate the R font database with the fonts on the system
+loadfonts(quiet = TRUE)
 
-knitr::opts_chunk$set(fig.width=16, fig.height=16) 
+theme_poster <- theme_light(base_size = 14) +
+            theme(text = element_text(family = 'Merriweather Sans'),
+                  strip.text = element_text(colour = "black")) 
+
+theme_paper <- theme_bw() + 
+  theme(axis.text = element_text(colour = "black"))
+
+condition_colours <- wes_palette("Darjeeling1", n = 5)
+condition_colours[c(2, 4, 5)] <- condition_colours[c(4, 5, 2)]
+
+knitr::opts_chunk$set(fig.width=16, fig.height=16)
+
+set.seed(0)
 ```
 
 
@@ -95,11 +109,12 @@ final_alpha_2_cutoff %>%
   facet_wrap(~ condition, scales = "free_y") +
   geom_histogram() +
   scale_x_continuous(limits = range(final_alpha_2_cutoff$prediction)) +
-  scale_fill_brewer(type = "qual", palette = 7) +
+  scale_fill_manual(values = condition_colours) +
   guides(fill = FALSE) +
   labs(title = "Predicted rate of forgetting (Lab)",
        x = "Predicted rate of forgetting",
-       y = "Count")
+       y = "Count") +
+  theme_poster
 
 
 final_alpha_2_cutoff %>%
@@ -108,11 +123,12 @@ final_alpha_2_cutoff %>%
   facet_wrap(~ condition, scales = "free_y") +
   geom_histogram() +
   scale_x_continuous(limits = range(final_alpha_2_cutoff$prediction)) +
-  scale_fill_brewer(type = "qual", palette = 7) +
+  scale_fill_manual(values = condition_colours) +
   guides(fill = FALSE) +
   labs(title = "Predicted rate of forgetting (MTurk)",
        x = "Predicted rate of forgetting",
-       y = "Count")
+       y = "Count") +
+  theme_poster
 ```
 
 
@@ -173,10 +189,11 @@ final_alpha_2_cutoff %>%
   coord_fixed(ratio = 1) +
   scale_x_continuous(limits = range(final_alpha_2_cutoff$final_alpha)) +
   scale_y_continuous(limits = range(final_alpha_2_cutoff$final_alpha)) +
-  scale_colour_brewer(type = "qual", palette = 7) +
+  scale_colour_manual(values = condition_colours) +
   guides(colour = FALSE) +
   labs(x = "Predicted rate of forgetting",
-       y = "Observed rate of forgetting")
+       y = "Observed rate of forgetting") +
+  theme_poster
 
 ggsave("../output/prediction_rmse_cutoff.pdf", device = "pdf", width = 10, height = 6)
 ```
@@ -188,9 +205,10 @@ ggplot(pred_acc_by_subj_cutoff, aes(x = condition, y = rmse)) +
   geom_violin(fill = NA) +
   geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
   guides(colour = FALSE) +
-  scale_colour_brewer(type = "qual", palette = 7) +
+  scale_colour_manual(values = condition_colours) +
   labs(x = NULL,
-       y = "Root-mean-square error")
+       y = "Root-mean-square error") +
+  theme_poster
 ```
 
 
@@ -257,10 +275,11 @@ final_alpha_2_full %>%
   coord_fixed(ratio = 1) +
   scale_x_continuous(limits = range(final_alpha_2_full$final_alpha)) +
   scale_y_continuous(limits = range(final_alpha_2_full$final_alpha)) +
-  scale_colour_brewer(type = "qual", palette = 7) +
+  scale_colour_manual(values = condition_colours) +
   guides(colour = FALSE) +
   labs(x = "Predicted rate of forgetting",
-       y = "Observed rate of forgetting")
+       y = "Observed rate of forgetting") +
+  theme_poster
 
 ggsave("../output/prediction_rmse_full.pdf", device = "pdf", width = 10, height = 6)
 ```
@@ -273,9 +292,7 @@ levels(final_alpha_2_full_tex$condition)[5] <- "Fact \\& Learner"
 pred_acc_by_cond_full_tex <- pred_acc_by_cond_full
 levels(pred_acc_by_cond_full_tex$condition)[5] <- "Fact \\& Learner"
 
-tikz(file = "../output/prediction_rmse_full.tex", width = 6, height = 3.5)
-
-final_alpha_2_full_tex %>%
+p <- final_alpha_2_full_tex %>%
   ggplot(aes(x = prediction, y = final_alpha, colour = condition)) +
   facet_grid(dataset ~ condition) +
   geom_hline(yintercept = 0.3, lty = 2) +
@@ -287,13 +304,18 @@ final_alpha_2_full_tex %>%
   coord_fixed(ratio = 1) +
   scale_x_continuous(limits = range(final_alpha_2_full_tex$final_alpha)) +
   scale_y_continuous(limits = range(final_alpha_2_full_tex$final_alpha)) +
-  scale_colour_brewer(type = "qual", palette = 7) +
+  scale_colour_manual(values = condition_colours) +
   guides(colour = FALSE) +
   labs(x = "Predicted rate of forgetting",
        y = "Observed rate of forgetting") +
-  theme_light()
+  theme_paper
 
+
+tikz(file = "../output/prediction_rmse_full.tex", width = 6.5, height = 3.5)
+p
 dev.off()
+
+p
 ```
 
 
@@ -304,9 +326,10 @@ ggplot(pred_acc_by_subj_cutoff, aes(x = condition, y = rmse)) +
   geom_violin(fill = NA) +
   geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
   guides(colour = FALSE) +
-  scale_colour_brewer(type = "qual", palette = 7) +
+  scale_colour_manual(values = condition_colours) +
   labs(x = NULL,
-       y = "Root-mean-square error")
+       y = "Root-mean-square error") +
+  theme_poster
 ```
 
 Repeating the test on the full dataset:

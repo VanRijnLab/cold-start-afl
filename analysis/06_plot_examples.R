@@ -20,6 +20,7 @@ library(tidyr)
 library(extraDistr)
 library(extrafont)
 library(fst)
+library(wesanderson)
 
 # font_import() # Run once to populate the R font database with the fonts on the system
 
@@ -27,6 +28,10 @@ loadfonts()
 
 theme_set(theme_light(base_size = 14) +
             theme(text = element_text(family = 'Merriweather Sans')))
+
+condition_colours <- wes_palette("Darjeeling1", n = 5)
+condition_colours[c(2, 4, 5)] <- condition_colours[c(4, 5, 2)]
+
 
 set.seed(1)
 
@@ -148,9 +153,9 @@ buchanan_bayes <- bind_rows(prior,
 
 
 post_pred <- buchanan_bayes %>%
-  nest(-obs) %>%
+  nest_legacy(-obs) %>%
   mutate(postpred = map(data, ~ calculate_t_distr(.$mu_n, .$kappa_n, .$a_n, .$b_n))) %>%
-  unnest(postpred)
+  unnest_legacy(postpred)
 
 post_pred_first <- filter(post_pred, obs == 0)
 post_pred_last <- filter(post_pred, as.numeric(obs) == nrow(buchanan_bayes))
@@ -189,13 +194,13 @@ alpha <- lab_1_rl_final_alpha %>%
 
 
 fact_res <- alpha %>%
-  nest(-fact_id) %>%
+  nest_legacy(-fact_id) %>%
   mutate(res = map(data, ~ run_bayes_model(.$final_alpha))) %>%
   select(-data)
 
 post_pred_facts <- fact_res %>%
   mutate(postpred = map(res, ~ calculate_t_distr(.$mu_n, .$kappa_n, .$a_n, .$b_n))) %>%
-  unnest(postpred)
+  unnest_legacy(postpred)
 
 post_pred_select <- post_pred_facts %>%
   filter(fact_id %in% c(6, 21, 27))
@@ -246,3 +251,97 @@ ggplot(post_pred_select2, aes(x = x, y = y, colour = as.factor(fact_id))) +
 
 ggsave("output/plots/post_pred_3_2.pdf", device = "pdf", width = 3, height = 3)
 
+
+
+
+# Prediction illustrations for paper --------------------------------------
+
+# Fact prediction
+
+fact_6 <- alpha %>%
+  filter(fact_id == 6) %>%
+  nest_legacy() %>%
+  mutate(res = map(data, ~ run_bayes_model(.$final_alpha))) %>%
+  mutate(postpred = map(res, ~ calculate_t_distr(.$mu_n, .$kappa_n, .$a_n, .$b_n)))
+
+observations_6 <- fact_6 %>%
+  unnest_legacy(data) %>%
+  select(x = final_alpha)
+
+prediction_dist_6 <- fact_6 %>%
+  unnest_legacy(postpred)
+
+prediction_6 <- prediction_dist_6 %>%
+  filter(y == max(y))
+
+ggplot(data = prediction_dist_6, aes(x = x, y = y)) +
+  geom_segment(data = observations_6, aes(x = x, xend = x, y = -.26, yend = -.01), lwd = 0.5, colour = condition_colours[3]) +
+  geom_line(lwd = 3, colour = condition_colours[3]) +
+  scale_x_continuous(minor_breaks = NULL) +
+  geom_segment(data = prediction_6, aes(x = x, xend = x, y = 3.91 + 1 * (y - mean(y)), yend = 3.9 + 1 * (y - mean(y))), arrow = arrow(angle = 20, length = unit(0.25, "inches"), type = "closed")) +
+  coord_cartesian(xlim = c(-.1, .75), ylim = c(0, 4.1), clip = "off") +
+  theme(panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank())
+
+ggsave("output/prediction_example_fact.pdf", device = "pdf", width = 2, height = 2)
+
+
+# Learner
+
+fact_27 <- alpha %>%
+  filter(fact_id == 27) %>%
+  mutate(final_alpha = final_alpha - 0.1) %>%
+  nest_legacy() %>%
+  mutate(res = map(data, ~ run_bayes_model(.$final_alpha))) %>%
+  mutate(postpred = map(res, ~ calculate_t_distr(.$mu_n, .$kappa_n, .$a_n, .$b_n)))
+
+observations_27 <- fact_27 %>%
+  unnest_legacy(data) %>%
+  select(x = final_alpha)
+
+prediction_dist_27 <- fact_27 %>%
+  unnest_legacy(postpred)
+
+prediction_27 <- prediction_dist_27 %>%
+  filter(y == max(y))
+
+ggplot(data = prediction_dist_27, aes(x = x, y = y)) +
+  geom_segment(data = observations_27, aes(x = x, xend = x, y = -.26, yend = -.01), lwd = 0.5, colour = condition_colours[4]) +
+  geom_line(lwd = 3, colour = condition_colours[4]) +
+  scale_x_continuous(minor_breaks = NULL) +
+  geom_segment(data = prediction_27, aes(x = x, xend = x, y = 3.91 + 1 * (y - mean(y)), yend = 3.9 + 1 * (y - mean(y))), arrow = arrow(angle = 20, length = unit(0.25, "inches"), type = "closed")) +
+  coord_cartesian(xlim = c(-.1, .75), ylim = c(0, 4.1), clip = "off") +
+  theme(panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank())
+
+ggsave("output/prediction_example_learner.pdf", device = "pdf", width = 2, height = 2)
+
+
+# Fact & Learner prediction
+
+prediction_dist_6_27 <- calculate_logarithmic_pool(prediction_dist_6, prediction_dist_27)
+prediction_6_27 <- prediction_dist_6_27 %>%
+  filter(y == max(y))
+
+ggplot(data = prediction_dist_6, aes(x = x, y = y)) +
+  geom_segment(data = observations_6, aes(x = x, xend = x, y = -.26, yend = -.01), lwd = 0.5, colour = condition_colours[3]) +
+  geom_segment(data = observations_27, aes(x = x, xend = x, y = -.52, yend = -.27), lwd = 0.5, colour = condition_colours[4]) +
+  geom_line(lwd = 1, lty = 2, colour = condition_colours[3]) +
+  geom_line(data = prediction_dist_27, lwd = 1, lty = 2, colour = condition_colours[4]) +
+  geom_line(data = prediction_dist_6_27, lwd = 3, colour = condition_colours[5]) +
+  scale_x_continuous(minor_breaks = NULL) +
+  geom_segment(data = prediction_6_27, aes(x = x, xend = x, y = 3.91 + 1 * (y - mean(y)), yend = 3.9 + 1 * (y - mean(y))), arrow = arrow(angle = 20, length = unit(0.25, "inches"), type = "closed")) +
+  coord_cartesian(xlim = c(-.1, .75), ylim = c(0, 4.1), clip = "off") +
+  theme(panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank())
+
+ggsave("output/prediction_example_fact_and_learner.pdf", device = "pdf", width = 2, height = 2)

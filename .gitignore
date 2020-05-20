@@ -1,4 +1,6 @@
-data/raw
+experiment-1/data/raw
+experiment-2/data/raw
+experiment-2
 .Rproj.user
 .Rhistory
 .directory

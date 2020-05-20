@@ -1,0 +1,353 @@
+---
+title: 'Descpriptive statistics of both sessions'
+author: "Maarten van der Velde"
+date: "Last updated: `r Sys.Date()`"
+output:
+  html_notebook:
+    smart: no
+    toc: yes
+    toc_float: yes
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Setup
+```{r}
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(jsonlite)
+library(purrr)
+library(scales)
+library(tidyr)
+library(fst)
+library(readr)
+
+theme_set(theme_light(base_size = 14))
+```
+
+
+---
+
+# Session 1
+
+```{r}
+s1_rl <- read_fst(file.path("..", "data", "processed", "s1", "s1_rl.fst"))
+s1_final_alpha <- read_fst(file.path("..", "data", "processed", "s1", "s1_final_alpha.fst"))
+```
+
+
+
+## Participants
+
+There were `r length(unique(s1_rl$subject))` participants.
+All of them completed a single 10-minute learning session with the default adaptive fact learning system.
+
+## Session stats
+```{r}
+session_stats <- s1_rl %>%
+  group_by(subject) %>%
+  summarise(n_trials = n(),
+  session_duration = (max(start_time) - min(start_time) + if_else(rt[which.max(start_time)] == Inf, median(rt), rt[which.max(start_time)])) / 60000,
+  perc_correct = mean(correct),
+  n_items = length(unique(fact_id)))
+```
+
+
+The boxplots below show the distributions of some performance statistics calculated for each participant's session.
+
+The duration of the session was fixed at 10 minutes (there is some variability because participants were allowed to finish their final trial).
+The reconstructed duration is the difference between the start time of the first trial and the start time of the last trial, plus the response time on the last trial (an infinite RT on the last trial was replaced by the participant's median RT).
+
+The number of trials varied substantially between participants but looks to be normally distributed (second plot).
+
+The number of unique facts that a participant encountered also varied strongly (third plot). Participants could encounter at most 30 unique facts, but none did.
+
+Response accuracy within the learning session was about 75%-80% (fourth plot).
+
+
+```{r}
+par(mfrow=c(2,2))
+boxplot(session_stats$session_duration, horizontal = TRUE, main = "Session duration (min)")
+boxplot(session_stats$n_trials, horizontal = TRUE, main = "Number of trials")
+boxplot(session_stats$n_items, horizontal = TRUE, main = "Number of unique facts")
+boxplot(session_stats$perc_correct, horizontal = TRUE, main = "Proportion correct")
+```
+
+
+## Fact difficulty
+
+The purpose of Session 1 was to collect observations for all 60 facts in the stimulus set, so that we could make predictions of fact difficulty for Session 2.
+Difficulty was predicted separately for each fact, in the form of a *rate of forgetting* (higher rate of forgetting = more difficult).
+
+For each fact, we pooled together all rates of forgetting estimated for that fact among participants who encountered it.
+To be included, an estimate had to be based on at least 3 encounters of the fact by a participant.
+
+### How many participants saw each fact?
+
+```{r}
+times_seen <- s1_rl %>%
+  group_by(fact_id) %>%
+  summarise(n = length(unique(subject)))
+```
+
+Each fact was seen once or more by at least `r min(times_seen$n)` participants and by at most `r max(times_seen$n)` participants.
+
+However, for a useful rate of forgetting estimate we need at least 3 encounters -- only then is some adjustment in the estimate possible.
+
+```{r}
+times_seen_usable <- s1_rl %>%
+  group_by(subject, fact_id) %>%
+  filter(n() >= 3) %>%
+  group_by(fact_id) %>%
+  summarise(n = length(unique(subject)))
+```
+
+Each fact was seen three times or more by at least `r min(times_seen_usable$n)` participants and by at most `r max(times_seen_usable$n)` participants.
+
+This means we have met the target set by our stopping rule (at least 30 usable observations per fact).
+
+
+### Final rate of forgetting distribution
+
+```{r}
+final_alphas <- s1_final_alpha %>%
+  filter(reps >= 3)
+
+hist(final_alphas$final_alpha, main = "Final rate of forgetting (facts with >= 3 repetitions)", xlab = "Rate of forgetting", 20)
+```
+
+
+### Final rate of forgetting per fact
+
+The plot below shows the distribution of estimated rates of forgetting for each fact.
+The blue points on top of the distributions show the prediction made by the Bayesian model on the basis of these estimates.
+The easiest facts are shown at the top of the plot, the most difficult at the bottom.
+The red dashed line shows the default starting value of 0.3.
+
+```{r, fig.height=10, fig.width=8}
+predictions <- read_fst(file.path("..", "data", "processed", "s1", "fact_predictions.fst")) %>%
+  select(fact_id, mu)
+
+final_alphas_plot <- filter(s1_rl, correct) %>%
+  distinct(fact_id, answer) %>%
+  left_join(final_alphas, by = "fact_id") %>%
+  left_join(predictions, by = "fact_id")
+
+
+ggplot(final_alphas_plot, aes(x = reorder(answer, -mu, FUN = median), y = final_alpha, group = as.factor(fact_id))) +
+  geom_hline(yintercept = 0.3, colour = "red", lty = 2) +
+  geom_boxplot(width = 0.5, outlier.size = 0.4) +
+  geom_point(aes(y = mu), colour = "blue") +
+  labs(x = "Fact",
+       y = "Rate of forgetting",
+       caption = "Blue points show the Bayesian model prediction.") +
+  coord_flip()
+```
+
+
+
+
+# Session 2
+
+Session 2 consisted of two learning blocks, each followed by a delayed recall test.
+
+```{r}
+s2_rl1 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl1.fst"))
+s2_rl2 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl2.fst"))
+s2_rl <- bind_rows(s2_rl1, s2_rl2) %>%
+  mutate(block = as.factor(block))
+
+s2_test1 <- read_fst(file.path("..", "data", "processed", "s2", "s2_test1.fst"))
+s2_test2 <- read_fst(file.path("..", "data", "processed", "s2", "s2_test2.fst"))
+s2_test <- bind_rows(s2_test1, s2_test2) %>%
+  mutate(block = as.factor(block))
+
+s2_rl1_final_alpha <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl1_final_alpha.fst"))
+s2_rl2_final_alpha <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl2_final_alpha.fst"))
+```
+
+## Participants
+
+There were `r length(unique(s2_rl$subject))` participants in Session 2.
+All participants completed two learning sessions, one with *default* predictions of the rate of forgetting, and one with *fact* predictions.
+The condition order was counterbalanced.
+Number of subjects in each condition order:
+
+```{r}
+distinct(s2_rl, subject, condition_order) %>% 
+  count(condition_order)
+```
+
+
+## Session stats
+
+```{r}
+session_stats2 <- s2_rl %>%
+  group_by(subject, block, condition) %>%
+  summarise(n_trials = n(),
+  session_duration = (max(start_time) - min(start_time) + if_else(rt[which.max(start_time)] == Inf, median(rt), rt[which.max(start_time)])) / 60000,
+  perc_correct = mean(correct),
+  n_items = length(unique(fact_id)))
+```
+
+
+The plots below show some performance statistics.
+
+### Duration
+Once again, the learning session in both blocks was 10 minutes long (participants were allowed to finish their final trial):
+```{r}
+with(session_stats2, boxplot(session_duration ~ interaction(block, condition), main = "Session duration (min)", xlab = "Block / condition", ylab = "Duration"))
+```
+
+### Number of trials
+Participants who started with a default block completed about the same number of trials as those in Session 1 of the experiment, but the number of completed trials in the other blocks/conditions appears to be higher.
+Note that there seems to be an increase from block 1 to block 2, but also a difference within block 1 between the two conditions.
+```{r}
+with(session_stats2, boxplot(n_trials ~ interaction(block, condition), main = "Number of trials", xlab = "Block / condition", ylab = "Number of trials"))
+```
+
+The plot below compares the number of trials within-subject between the two blocks. 
+Each subject is represented by a point; subjects below/to the right of the diagonal improved from block 1 to block 2.
+```{r}
+par(pty="s")
+plot(filter(session_stats2, block == 1)$n_trials ~ filter(session_stats2, block == 2)$n_trials, main = "Number of trials", xlab = "Block 2", ylab = "Block 1", xlim = c(50,150), ylim = c(50,150))
+abline(coef = c(0, 1), lty = 2)
+```
+
+
+### Number of unique facts
+The number of unique facts encountered by the participant during each block appears to vary between blocks and conditions too (plot below)
+Here too, there appears to be an increase from block 1 to block 2, particularly if block 2 is a default block. 
+```{r}
+with(session_stats2, boxplot(n_items ~ interaction(block, condition), main = "Number of unique facts", xlab = "Block / condition", ylab = "Unique facts"))
+```
+
+The plot below compares the number of unique facts within-subject between the two blocks. 
+Each subject is represented by a point; subjects below/to the right of the diagonal improved from block 1 to block 2.
+```{r}
+par(pty="s")
+plot(filter(session_stats2, block == 1)$n_items ~ filter(session_stats2, block == 2)$n_items, main = "Unique facts", xlab = "Block 2", ylab = "Block 1", xlim = c(0,30), ylim = c(0,30))
+abline(coef = c(0, 1), lty = 2)
+```
+
+
+
+### Response accuracy
+The proportion of correct answers also seems to differ between blocks and conditions: participants who start with a default block seem to respond less accurately in that block than participants who start with a fact block. In block 2, the difference between conditions looks smaller.
+```{r}
+with(session_stats2, boxplot(perc_correct ~ interaction(block, condition), main = "Proportion correct", xlab = "Block / condition", ylab = "Proportion correct"))
+```
+
+The plot below compares the response accuracy within-subject between the two blocks. 
+Each subject is represented by a point; subjects below/to the right of the diagonal improved from block 1 to block 2.
+There is a notable outlier: subject `pbkwj1yz9jnvmbj` scored well in block 1 but did very poorly in block 2.
+```{r}
+par(pty="s")
+plot(filter(session_stats2, block == 1)$perc_correct ~ filter(session_stats2, block == 2)$perc_correct, main = "Proportion correct", xlab = "Block 2", ylab = "Block 1", xlim = c(0,1), ylim = c(0,1))
+abline(coef = c(0, 1), lty = 2)
+```
+
+## Tetris stats
+
+Participants played a game of Tetris after each learning session.
+The plot below compares the final scores in both blocks within-subject.
+```{r}
+s2_tetris <- read_fst(file.path("..", "data", "processed", "s2", "s2_tetris.fst"))
+
+par(pty="s")
+plot(filter(s2_tetris, block == 1)$tetris_highscore ~ filter(s2_tetris, block == 2)$tetris_highscore, main = "Tetris score", xlab = "Block 2", ylab = "Block 1", xlim = c(0, max(s2_tetris$tetris_highscore)), ylim = c(0, max(s2_tetris$tetris_highscore)))
+abline(coef = c(0, 1), lty = 2)
+```
+
+Zooming in around zero shows that there are four participants who scored zero points in one of the two Tetris games, which suggests that they may have been doing something else.
+(You score 400 points for completing a single row, which should be doable in a 5-minute game.)
+```{r}
+par(pty="s")
+plot(filter(s2_tetris, block == 1)$tetris_highscore ~ filter(s2_tetris, block == 2)$tetris_highscore, main = "Tetris score (zoomed in)", xlab = "Block 2", ylab = "Block 1", xlim = c(0, 10000), ylim = c(0, 10000))
+abline(coef = c(0, 1), lty = 2)
+```
+
+
+## Test stats
+
+After each Tetris game, participants were tested on the study items from the preceding learning session.
+Regardless of how many of these items a participant had actually studied, all 30 were included on the test.
+
+
+```{r}
+test_stats_all <- s2_test %>%
+  group_by(subject, block, condition) %>%
+  summarise(n_correct = sum(correct),
+            n_studied = sum(studied),
+            accuracy = n_correct / 30)
+
+test_stats_studied <- s2_test %>%
+  filter(studied) %>%
+  group_by(subject, block, condition) %>%
+  summarise(n_correct_studied = sum(correct),
+            accuracy_studied = n_correct_studied / n())
+
+test_stats <- left_join(test_stats_all, test_stats_studied, by = c("subject", "block", "condition"))
+```
+
+The plot below shows the number of correctly answered items on the test (out of 30).
+Once again, the default block 1 stands out with lower performance.
+It looks like the score in block 2 default may actually be higher than the score in block 2 fact.
+```{r}
+with(test_stats, boxplot(n_correct ~ interaction(block, condition), main = "Test score (all 30 items)", xlab = "Block / condition", ylab = "Number of correct answers"))
+```
+
+The plot below compares the test score within-subject between the two blocks. 
+Each subject is represented by a point; subjects below/to the right of the diagonal improved from block 1 to block 2.
+The same outlier shows up again: subject `pbkwj1yz9jnvmbj` scored well in block 1 but did very poorly in block 2.
+```{r}
+par(pty="s")
+plot(filter(test_stats, block == 1)$n_correct ~ filter(test_stats, block == 2)$n_correct, main = "Test score (all 30 items)", xlab = "Block 2", ylab = "Block 1", xlim = c(0,30), ylim = c(0,30))
+abline(coef = c(0, 1), lty = 2)
+```
+
+
+
+The plot below shows test scores based only on items that were studied during the preceding learning session.
+```{r}
+with(test_stats, boxplot(n_correct_studied ~ interaction(block, condition), main = "Test score (only studied items)", xlab = "Block / condition", ylab = "Number of correct answers"))
+```
+
+The plot looks virtually identical to the plot that includes all 30 items, which suggests that participants basically did not get any unstudied items right on the test.
+This is indeed the case: out of a total of `r nrow(filter(s2_test, !studied))` unstudied items across all participants and blocks, only `r nrow(filter(s2_test, !studied, correct))` were answered correctly.
+These responses are shown below.
+All of them are large cities that could reasonably be guessed based on prior knowledge.
+
+```{r}
+cities <- read_csv(file.path("..", "stimuli", "setC.csv"), col_types = cols(
+  id = col_factor(),
+  image = col_character(),
+  text = col_logical(),
+  answer = col_character()
+)) %>%
+  select(id, answer)
+
+filter(s2_test, !studied, correct) %>%
+  left_join(cities, by = c("fact_id" = "id"))
+```
+
+## Outliers
+
+One participant (anonymous ID `pbkwj1yz9jnvmbj`) did not answer any questions correctly on the second test and also did not do the second learning session seriously (repeatedly copying the answer from the previous question).
+Mark this participant for exclusion from the analysis:
+```{r}
+s2_exclude <- tibble(subject ="pbkwj1yz9jnvmbj")
+write_fst(s2_exclude, file.path("..", "data", "processed", "s2", "s2_exclude.fst"))
+```
+
+
+# R session info
+```{r}
+sessionInfo()
+```
+

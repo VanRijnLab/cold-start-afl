@@ -1,0 +1,993 @@
+---
+title: 'Predicting Alpha: Visualisations for Presentation and Paper'
+author: "Maarten van der Velde"
+date: "Last updated: `r Sys.Date()`"
+output:
+  html_notebook:
+    smart: no
+    toc: yes
+    toc_float: yes
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+```{r}
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(patchwork)
+library(grid)
+library(ggrepel)
+library(ggforce)
+library(gganimate)
+library(wesanderson)
+library(cowplot)
+library(stringr)
+library(tidyr)
+library(extrafont)
+library(readr)
+library(fst)
+library(tikzDevice)
+library(brms)
+
+# font_import() # Run once to populate the R font database with the fonts on the system
+loadfonts(quiet = TRUE)
+
+theme_poster <- theme_light(base_size = 14) +
+            theme(text = element_text(family = 'Merriweather Sans'),
+                  strip.text = element_text(colour = "black")) 
+
+theme_paper <- theme_bw() + 
+  theme(axis.text = element_text(colour = "black"))
+
+condition_colours <- wes_palette("Darjeeling1", n = 5)
+condition_colours <- condition_colours[c(1,3)]
+
+knitr::opts_chunk$set(fig.width=16, fig.height=16)
+
+set.seed(0)
+```
+
+# Predicted rate of forgetting
+
+```{r}
+predictions <- read_fst(file.path("..", "data", "processed", "s1", "fact_predictions.fst"))
+
+rl1 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl1_calc.fst")) %>%
+  mutate(block = 1)
+rl2 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl2_calc.fst")) %>%
+  mutate(block = 2)
+
+rl <- bind_rows(rl1, rl2) %>%
+  distinct(subject, block, condition, fact_id, prediction)
+
+final_alpha_1 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl1_final_alpha.fst"))
+final_alpha_2 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl2_final_alpha.fst"))
+
+s2_exclude <- read_fst(file.path("..", "data", "processed", "s2", "s2_exclude.fst"))
+
+observations <- bind_rows(final_alpha_1, final_alpha_2)
+
+pred_v_obs <- left_join(rl, observations, by = c("subject", "fact_id")) %>%
+  rename(predicted = prediction,
+         observed = final_alpha)
+```
+
+
+## Distribution
+```{r}
+pred_v_obs %>% 
+  distinct(condition, fact_id, .keep_all = TRUE) %>%
+  ggplot(aes(x = predicted, fill = condition)) +
+  facet_grid(~ condition, labeller = label_both, scales = "free_y") +
+  geom_histogram(binwidth = 0.005) +
+  labs(x = "Predicted rate of forgetting", y = "Count") +
+  guides(fill = FALSE) +
+  scale_fill_brewer(type = "qual", palette = 7) +
+  theme_poster
+```
+
+```{r}
+pred_v_obs %>% 
+  distinct(condition, fact_id, .keep_all = TRUE) %>%
+  ggplot(aes(x = condition, y = predicted)) +
+  geom_violin() +
+  geom_boxplot(width = 0.2) +
+  labs(x = "Condition", y = "Predicted rate of forgetting") +
+  theme_poster
+```
+
+
+## On a map
+
+```{r}
+city_ids <- read_csv(file.path("..", "stimuli", "setC.csv")) %>%
+  transmute(fact_id = as.factor(id), city = answer)
+
+cities <- read_fst(file.path("..", "stimuli", "setC.fst"))
+
+city_coords <- cities %>%
+  transmute(city = tolower(city), lat = lat, lng = lng, category = city_type) %>%
+  right_join(city_ids, by = "city")
+
+pred_map <- predictions %>%
+  select(fact_id, predicted = mu) %>%
+  left_join(city_coords, by = "fact_id")
+```
+
+Plot the predicted rate of forgetting for each city:
+```{r}
+rof_pal <- wes_palette("Zissou1", 100, type = "continuous")
+
+ggplot(data = pred_map, aes(x = lng, y = lat)) + 
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#8aa1a5", color = "#8aa1a5", size = 30) + # add border
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#f5f5f5", color = "#646464", size = 2) + 
+  coord_map("albers", lat0 = 39, lat1 = 45) +
+  geom_point(aes(fill = predicted), size = 10, pch = 21) +
+  geom_label_repel(aes(label = str_to_title(city), fontface = ifelse(category == "big", "bold", "plain")), nudge_y = -1, min.segment.length = 1) +
+  scale_colour_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  scale_fill_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  guides(colour = FALSE, fill = FALSE) +
+  theme_void()
+
+ggsave(file.path("..", "output", "predictions_map.pdf"), device = "pdf", width = 14, height = 8)
+
+# Version without bold labels for big cities
+ggplot(data = pred_map, aes(x = lng, y = lat)) + 
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#8aa1a5", color = "#8aa1a5", size = 30) + # add border
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#f5f5f5", color = "#646464", size = 2) + 
+  coord_map("albers", lat0 = 39, lat1 = 45) +
+  geom_point(aes(fill = predicted), size = 10, pch = 21) +
+  geom_label_repel(aes(label = str_to_title(city)), nudge_y = -1, min.segment.length = 1) +
+  scale_colour_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  scale_fill_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  guides(colour = FALSE, fill = FALSE) +
+  theme_void()
+
+ggsave(file.path("..", "output", "predictions_map_simple.pdf"), device = "pdf", width = 14, height = 8)
+
+```
+
+For comparison, also create a version of the plot with the default rate of forgetting as the prediction:
+```{r}
+ggplot(data = pred_map, aes(x = lng, y = lat)) + 
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#8aa1a5", color = "#8aa1a5", size = 30) + # add border
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#f5f5f5", color = "#646464", size = 2) + 
+  coord_map("albers", lat0 = 39, lat1 = 45) +
+  geom_point(aes(fill = 0.3), size = 10, pch = 21) +
+  geom_label_repel(aes(label = str_to_title(city), fontface = ifelse(category == "big", "bold", "plain")), nudge_y = -1, min.segment.length = 1) +
+  scale_colour_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  scale_fill_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  guides(colour = FALSE, fill = FALSE) +
+  theme_void()
+
+ggsave(file.path("..", "output", "predictions_default_map.pdf"), device = "pdf", width = 14, height = 8)
+
+# Version without bold labels for big cities
+ggplot(data = pred_map, aes(x = lng, y = lat)) + 
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#8aa1a5", color = "#8aa1a5", size = 30) + # add border
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#f5f5f5", color = "#646464", size = 2) + 
+  coord_map("albers", lat0 = 39, lat1 = 45) +
+  geom_point(aes(fill = 0.3), size = 10, pch = 21) +
+  geom_label_repel(aes(label = str_to_title(city)), nudge_y = -1, min.segment.length = 1) +
+  scale_colour_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  scale_fill_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  guides(colour = FALSE, fill = FALSE) +
+  theme_void()
+
+ggsave(file.path("..", "output", "predictions_default_map_simple.pdf"), device = "pdf", width = 14, height = 8)
+
+
+
+ggplot(data = pred_map, aes(x = lng, y = lat)) + 
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#8aa1a5", color = "#8aa1a5", size = 30) + # add border
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#f5f5f5", color = "#646464", size = 2) + 
+  coord_map("albers", lat0 = 39, lat1 = 45) +
+  geom_point(aes(fill = 0.3), size = 10, pch = 21) +
+  # geom_label_repel(aes(label = str_to_title(city), fontface = ifelse(category == "big", "bold", "plain")), nudge_y = -1, min.segment.length = 1) +
+  scale_colour_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  scale_fill_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  guides(colour = FALSE, fill = FALSE) +
+  theme_void()
+
+ggsave(file.path("..", "output", "predictions_default_map_nolabels.pdf"), device = "pdf", width = 14, height = 8)
+```
+
+Finally, plot the legend separately:
+```{r}
+p <- ggplot(data = pred_map, aes(x = lng, y = lat)) + 
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#8aa1a5", color = "#8aa1a5", size = 30) + # add border
+  geom_polygon(data = map_data("state"), aes(x= long, y = lat, group = group), fill = "#f5f5f5", color = "#646464", size = 2) + 
+  coord_map("albers", lat0 = 39, lat1 = 45) +
+  geom_point(aes(fill = 0.3), size = 10, pch = 21) +
+  geom_label_repel(aes(label = str_to_title(city), fontface = ifelse(category == "big", "bold", "plain")), nudge_y = -1, min.segment.length = 1) +
+  scale_colour_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  scale_fill_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  labs(fill = "Predicted rate of forgetting") +
+  guides(colour = FALSE,
+         fill = guide_colourbar(title.position = "top", title.hjust = 0.5)) +
+  theme_void() +
+  theme(legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.key.width = unit(1, "cm"))
+
+rof_legend <- get_legend(p)
+
+ggsave(file.path("..", "output", "predictions_legend.pdf"), plot = rof_legend, device = "pdf", width = 2.15, height = 1)
+```
+
+
+Distribution of predictions:
+```{r}
+pred_map %>%
+  mutate(category = paste(category, "cities")) %>%
+  ggplot(aes(x = category, y = predicted, colour = predicted)) +
+  geom_hline(yintercept = 0.3, lty = 2) +
+  geom_boxplot(colour = "black") +
+  geom_point(position = position_jitterdodge(jitter.height = 0, jitter.width = 0.3), size = 2) +
+  guides(colour = FALSE) +
+  labs(x = NULL,
+       y = "Predicted rate of forgetting") +
+  scale_colour_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  theme_poster
+
+ggsave(file.path("..", "output", "predictions_dist.pdf"), device = "pdf", width = 2.75, height = 3)
+
+# Combined
+pred_map %>%
+  mutate(category = paste(category, "cities")) %>%
+  ggplot(aes(x = 0, y = predicted, colour = predicted)) +
+  geom_hline(yintercept = 0.3, lty = 2) +
+  geom_violin(fill = NA) +
+  geom_boxplot(colour = "black", fill = NA, width = 0.5) +
+  geom_point(position = position_jitterdodge(jitter.height = 0, jitter.width = 0.3), size = 2) +
+  guides(colour = FALSE) +
+  labs(x = NULL,
+       y = "Predicted rate of forgetting") +
+  scale_y_continuous(limits = c(0.2, 0.45)) +
+    scale_colour_gradientn(colours = rof_pal, limits = c(0.20, 0.45), values = scales::rescale(c(-0.5, -0.2, 0, 0.1, 0.5))) +
+  theme_poster +
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+ggsave(file.path("..", "output", "predictions_dist_combined.pdf"), device = "pdf", width = 2, height = 3)
+```
+
+
+Make the plot shown in the paper:
+```{r}
+p <- pred_map %>%
+  mutate(category = as.factor(ifelse(category == "big", "Big cities", "Small towns"))) %>%
+  ggplot(aes(x = category, y = predicted)) +
+  geom_hline(yintercept = 0.3, lty = 2) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = category), colour = condition_colours[2]) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  labs(x = NULL,
+       y = "Predicted rate of forgetting") +
+  theme_paper
+
+tikz(file = "../output/predicted-rof-exp2.tex", width = 4.75/2, height = 2)
+p
+dev.off()
+
+p
+```
+
+
+## Development of prediction
+
+Highlight a single city on the map (Seattle) and visualise how the prediction for that city develops as observations from session 1 are added.
+
+```{r}
+source(file.path("..", "analysis", "bayes_funs.R"))
+
+# Model priors
+mu_0 <- 0.3 # mean (b)
+kappa_0 <- 1 # number of observations/precision (c)
+a_0 <- 3 # shape of Gamma (g)
+b_0 <- 0.2 # rate of Gamma (h)
+
+prior <- tibble(mu_n = mu_0,
+                kappa_n = kappa_0,
+                a_n = a_0,
+                b_n = b_0)
+
+seattle <- read_fst(file.path("..", "data", "processed", "s1", "s1_final_alpha.fst")) %>%
+  filter(fact_id == 49) %>%
+  filter(reps >= 3)
+
+seattle_bayes <- bind_rows(prior,
+          run_bayes_model_incremental(seattle$final_alpha)) %>%
+  mutate(obs = 0:(n()-1))
+
+post_pred <- seattle_bayes %>%
+  nest(data = c(mu_n, kappa_n, a_n, b_n)) %>%
+  mutate(postpred = purrr::map(data, ~ calculate_t_distr(.$mu_n, .$kappa_n, .$a_n, .$b_n))) %>%
+  unnest(postpred)
+
+post_pred_first <- filter(post_pred, obs == 0)
+post_pred_last <- filter(post_pred, obs == nrow(seattle_bayes) - 1)
+post_pred_between <- filter(post_pred, obs > 0 & obs < nrow(seattle_bayes) - 1)
+
+```
+
+```{r}
+ggplot(post_pred_between, aes(x = x, y = y, colour = as.factor(obs))) +
+  geom_line(data = post_pred_first, colour = "darkgrey", lwd = 1.25, lty = 2) +
+  geom_line(lwd = 0.75) +
+  geom_line(data = post_pred_last, colour = "black", lwd = 2.0) +
+  annotate("segment", x = tail(seattle_bayes,1)$mu_n, xend = tail(seattle_bayes,1)$mu_n, y = 4.25, yend = 3.75, arrow = arrow(angle = 20, length = unit(0.1, "inches"), type = "closed")) +
+  annotate("text", x = tail(seattle_bayes,1)$mu_n, y = 4.5, label = formatC(tail(seattle_bayes,1)$mu_n, digits = 3)) +
+  scale_x_continuous(minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL, limits = c(0,4.5)) +
+  scale_colour_viridis_d(option = "C", direction = -1, begin = 0.1, end = 0.9) +
+  guides(colour = FALSE) +
+  labs(x = "Rate of forgetting",
+       y = "Density")
+
+ggsave(file.path("..", "output", "post_pred_seattle.pdf"), device = "pdf", width = 3, height = 3)
+```
+
+Make an animated version of this plot:
+```{r, eval = FALSE}
+for (n in 0:max((post_pred$obs))) {
+  d <- filter(post_pred, obs <= n)
+  d_prior <- filter(d, obs == 0)
+  d_between <- filter(d, obs > 0, obs < n)
+  d_last <- filter(d, obs == n, obs > 0)
+  
+  
+  ggplot(d_between, aes(x = x, y = y, group = as.factor(obs))) +
+    geom_line(data = d_prior, lwd = 1.25, colour = "blue") +
+    geom_line(lwd = 0.75, aes(alpha = obs/nrow(seattle_bayes))) +
+    geom_line(data = d_last, colour = "red", lwd = 1.25) +
+    geom_vline(xintercept = 0.3, colour = "blue", lty = 2) +
+    geom_vline(xintercept = seattle_bayes[n+1,]$mu_n, colour = "red", lty = 2) +
+    # annotate("segment", x = seattle_bayes[n+1,]$mu_n, xend = seattle_bayes[n+1,]$mu_n, y = 4.25, yend = 3.75, arrow = arrow(angle = 20, length = unit(0.1, "inches"), type = "closed")) +
+    # annotate("label", x = seattle_bayes[n+1,]$mu_n, y = 4.5, label = formatC(seattle_bayes[n+1,]$mu_n, digits = 3, width = 4, flag = "0")) +
+    scale_x_continuous(minor_breaks = NULL) +
+    scale_y_continuous(minor_breaks = NULL, limits = c(0,4.5)) +
+    scale_colour_viridis_d(option = "C", direction = -1, begin = 0.1, end = 0.9) +
+    guides(alpha = FALSE) +
+    theme_light(base_size = 14) +
+    labs(x = "Rate of forgetting",
+       y = "Density",
+       title = paste0("Posterior Predictive (n = ", formatC(n, width = 3, format = "d", flag = "0"), ")"))
+
+
+  ggsave(file.path("..", "output", "post_pred_gif", paste0("post_pred_seattle_", formatC(n + 1, width = 3, format = "d", flag = "0"), ".pdf")), device = "pdf", width = 3.5, height = 3.5)
+  }
+
+# Turn into a gif, add extra delay on first and last frame
+system("cd ../output/post_pred_gif && 
+       convert -delay 30 -density 300 -dispose previous *.pdf post_pred_seattle.gif && 
+       convert post_pred_seattle.gif \\( -clone 0 -set delay 100 \\) -swap 0 +delete \\( -clone -1 -set delay 100 \\) -swap -1 post_pred_seattle.gif")
+```
+
+
+## Correlation between predicted and observed rate of forgetting
+
+We predict a rate of forgetting for each fact.
+In the default condition, this prediction is never used, but we can compare the final rate of forgetting estimate that the algorithm obtains to the predicted value.
+In the fact condition, the predicted value *is* used, meaning that we should expect a higher correlation between the predicted and observed values.
+The plot below shows each fact's predicted value on the x-axis, and the mean (+/- 1 SE) observed value on the y-axis.
+Observations from the two conditions are plotted separately, and points representing the same fact are linked together.
+
+```{r}
+fact_predictions <- pred_v_obs %>%
+  filter(condition == "fact") %>%
+  distinct(fact_id, predicted) %>%
+  rename(predicted_fact = predicted)
+
+pred_v_obs %>%
+  left_join(fact_predictions, by = "fact_id") %>%
+  mutate(condition_alt = ifelse(condition == "default", "Default", "Predictive")) %>%
+  filter(reps >= 3) %>%
+  group_by(condition, condition_alt, fact_id) %>%
+  summarise(predicted_fact = predicted_fact[1],
+            observed_mean = mean(observed),
+            observed_se = sd(observed)/n()) %>%
+  ggplot(aes(x = predicted_fact, y = observed_mean, colour = condition_alt)) +
+  # facet_grid(~ condition) +
+  geom_abline(intercept = 0, slope = 1, lty = 2) +
+  geom_smooth(method = "lm") +
+  geom_point() +
+  geom_line(aes(group = fact_id), colour = "black", alpha = 0.25) +
+  geom_errorbar(aes(ymin = observed_mean - observed_se, ymax = observed_mean + observed_se)) +
+  labs(x = "Predicted rate of forgetting",
+       y = "Observed rate of forgetting",
+       colour = "Condition") +
+  scale_x_continuous(limits = c(0.18, 0.52)) +
+  scale_y_continuous(limits = c(0.18, 0.52)) +
+  scale_color_viridis_d(begin = 0.2, end = 0.8) +
+    theme(aspect.ratio = 1)
+
+
+ggsave(file.path("..", "output", "pred_v_obs.pdf"), device = "pdf", width = 5, height = 5)
+
+
+
+# Faceted version
+pred_v_obs %>%
+  left_join(fact_predictions, by = "fact_id") %>%
+  mutate(condition_alt = ifelse(condition == "default", "Default", "Predictive")) %>%
+  filter(reps >= 3) %>%
+  group_by(condition, condition_alt, fact_id) %>%
+  summarise(predicted_fact = predicted_fact[1],
+            observed_mean = mean(observed),
+            observed_se = sd(observed)/n()) %>%
+  ggplot(aes(x = predicted_fact, y = observed_mean, colour = condition_alt)) +
+  facet_grid(~ condition_alt) +
+  geom_abline(intercept = 0, slope = 1, lty = 2) +
+  geom_smooth(method = "lm") +
+  geom_errorbar(aes(ymin = observed_mean - observed_se, ymax = observed_mean + observed_se)) +
+  geom_point(aes(fill = condition_alt), colour = "black", pch = 21) +
+  # geom_line(aes(group = fact_id), colour = "black", alpha = 0.25) +
+  guides(colour = FALSE, fill = FALSE) +
+  labs(x = "Predicted rate of forgetting",
+       y = "Observed rate of forgetting") +
+  scale_x_continuous(limits = c(0.18, 0.52)) +
+  scale_y_continuous(limits = c(0.18, 0.52)) +
+  scale_color_viridis_d(begin = 0.2, end = 0.8) +
+  scale_fill_viridis_d(begin = 0.2, end = 0.8) +
+    theme(aspect.ratio = 1)
+
+
+ggsave(file.path("..", "output", "pred_v_obs_facet.pdf"), device = "pdf", width = 6.5, height = 4)
+
+```
+
+
+## Number of presentations as function of RoF
+
+```{r}
+bind_rows(rl1, rl2) %>%
+  anti_join(s2_exclude, by = "subject") %>%
+  droplevels() %>%
+  mutate(condition_alt = ifelse(condition == "default", "Default", "Predictive")) %>%
+  left_join(fact_predictions, by = "fact_id") %>%
+  group_by(condition_alt, fact_id, predicted_fact, subject) %>%
+  summarise(n_reps = n()) %>%
+  summarise(n_reps_mean = mean(n_reps),
+            n_reps_se = sd(n_reps) / sqrt(n())) %>%
+  ggplot(aes(x = predicted_fact, y = n_reps_mean, colour = condition_alt)) +
+  # facet_grid(~ condition_alt) +
+  geom_smooth(method = "lm") +
+  geom_point() +
+  geom_errorbar(aes(ymin = n_reps_mean - n_reps_se, ymax = n_reps_mean + n_reps_se)) +
+  # guides(colour = FALSE) +
+  scale_color_viridis_d(begin = 0.2, end = 0.8) +
+  scale_y_continuous(limits = c(0, 15)) +
+  labs(x = "Predicted fact-level rate of forgetting",
+       y = "Mean number of presentations",
+       colour = "Condition")
+  
+ggsave(file.path("..", "output", "reps_v_pred.pdf"), device = "pdf", width = 5, height = 4)
+
+
+# Faceted version
+bind_rows(rl1, rl2) %>%
+  anti_join(s2_exclude, by = "subject") %>%
+  droplevels() %>%
+  mutate(condition_alt = ifelse(condition == "default", "Default", "Predictive")) %>%
+  left_join(fact_predictions, by = "fact_id") %>%
+  group_by(condition_alt, fact_id, predicted_fact, subject) %>%
+  summarise(n_reps = n()) %>%
+  summarise(n_reps_mean = mean(n_reps),
+            n_reps_se = sd(n_reps) / sqrt(n())) %>%
+  ggplot(aes(x = predicted_fact, y = n_reps_mean, colour = condition_alt)) +
+  facet_grid(~ condition_alt) +
+  geom_smooth(method = "lm") +
+  geom_errorbar(aes(ymin = n_reps_mean - n_reps_se, ymax = n_reps_mean + n_reps_se)) +
+  geom_point(aes(fill = condition_alt), colour = "black", pch = 21) +
+  guides(colour = FALSE, fill = FALSE) +
+  scale_color_viridis_d(begin = 0.2, end = 0.8) +
+  scale_fill_viridis_d(begin = 0.2, end = 0.8) +
+  scale_y_continuous(limits = c(0, 15)) +
+  labs(x = "Predicted fact-level rate of forgetting",
+       y = "Mean number of presentations",
+       colour = "Condition")
+  
+ggsave(file.path("..", "output", "reps_v_pred_facet.pdf"), device = "pdf", width = 6.5, height = 4)
+
+```
+
+
+
+## Development of rate of forgetting over time
+
+For one participant in session 2, plot their rate of forgetting estimates in both blocks.
+
+```{r}
+alpha_trajectories <- bind_rows(rl1, rl2) %>%
+  filter(subject == "cpzdhglt894hva3") %>%
+  group_by(fact_id) %>%
+  mutate(time = (start_time - min(start_time)) / 60000) %>%
+  filter(n() > 3) %>%
+  ungroup()
+
+
+alpha_trajectories_first <- alpha_trajectories %>%
+  group_by(fact_id) %>%
+  arrange(time) %>%
+  slice(1) %>%
+  ungroup()
+
+alpha_trajectories_last <- alpha_trajectories %>%
+  group_by(fact_id) %>%
+  arrange(time) %>%
+  slice(n()) %>%
+  ungroup()
+
+ggplot(filter(alpha_trajectories, condition == "default"), aes(x = time, y = alpha)) +
+  geom_line(alpha = 0.5, aes(colour = fact_id)) +
+  geom_point(alpha = 0.5, size = 1, aes(colour = fact_id, fill = fact_id)) +
+  geom_mark_ellipse(data = filter(alpha_trajectories_first, condition == "default"), expand = 0.01, aes(colour = fact_id, fill = fact_id)) +
+  geom_mark_ellipse(data = filter(alpha_trajectories_last, condition == "default"), expand = 0.015, aes(colour = fact_id, fill = fact_id)) +
+  guides(colour = FALSE, fill = FALSE) +
+  scale_x_continuous(breaks = seq(0, 10, 2), limits = c(0, 10), minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(0.2, 0.8, 0.1), limits = c(0.199, 0.601), minor_breaks = NULL) +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() +
+  labs(x = "Time (minutes)",
+       y = "Rate of forgetting")
+
+ggsave(file.path("..", "output", "alpha_trace_default.pdf"), device = "pdf", width = 3.5, height = 3)
+
+ggplot(filter(alpha_trajectories, condition == "fact"), aes(x = time, y = alpha)) +
+  geom_line(alpha = 0.5, aes(colour = fact_id)) +
+  geom_point(alpha = 0.5, size = 1, aes(colour = fact_id, fill = fact_id)) +
+  geom_mark_ellipse(data = filter(alpha_trajectories_first, condition == "fact"), expand = 0.01, aes(colour = fact_id, fill = fact_id)) +
+  geom_mark_ellipse(data = filter(alpha_trajectories_last, condition == "fact"), expand = 0.015, aes(colour = fact_id, fill = fact_id)) +
+  guides(colour = FALSE, fill = FALSE) +
+  scale_x_continuous(breaks = seq(0, 10, 2), limits = c(0, 10), minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(0.2, 0.8, 0.1), limits = c(0.199, 0.601), minor_breaks = NULL) +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() +
+  labs(x = "Time (minutes)",
+       y = "Rate of forgetting")
+
+ggsave(file.path("..", "output", "alpha_trace_fact.pdf"), device = "pdf", width = 3.5, height = 3)
+```
+
+Update for NVP presentation: simplify the plot a bit
+```{r}
+alpha_trajectories <- bind_rows(rl1, rl2) %>%
+  filter(subject == "cpzdhglt894hva3") %>%
+  group_by(fact_id) %>%
+  mutate(time = (start_time - min(start_time)) / 60000) %>%
+  filter(n() > 3) %>%
+  ungroup()
+
+alpha_trajectories_default <- filter(alpha_trajectories, condition == "default") %>%
+  filter(!fact_id %in% c(49, 9, 45, 10, 56)) %>%
+  filter(repetition <= 7) %>%
+  identity()
+
+alpha_trajectories_default_first <- alpha_trajectories_default %>%
+  group_by(fact_id) %>%
+  arrange(time) %>%
+  slice(1) %>%
+  ungroup()
+
+alpha_trajectories_default_last <- alpha_trajectories_default %>%
+  group_by(fact_id) %>%
+  arrange(time) %>%
+  slice(n()) %>%
+  ungroup()
+
+alpha_trajectories_default <- alpha_trajectories_default %>%
+  mutate(fact_id = fct_relevel(fact_id, as.character(c(arrange(alpha_trajectories_default_last, alpha)$fact_id))))
+
+rof_pal_discrete <- wes_palette("Zissou1", 3, type = "continuous")
+
+ggplot(alpha_trajectories_default, aes(x = repetition, y = alpha)) +
+  geom_line(lwd = 1, alpha = 0.6, position = position_dodge(-0.2), aes(colour = fact_id)) +
+  geom_point(data = alpha_trajectories_default_first, size = 1.5) +
+  geom_point(data = alpha_trajectories_default_last, size = 2.5, aes(colour = fact_id)) +
+  guides(colour = FALSE, fill = FALSE) +
+  scale_x_continuous(breaks = seq(1, 7, 2)) +
+  scale_y_continuous(breaks = seq(0.2, 0.5, 0.1), limits = c(0.2, 0.5), minor_breaks = NULL) +
+  scale_colour_manual(values = c(rof_pal_discrete)) +
+  labs(x = "Time",
+       y = "Rate of forgetting") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_line(arrow = arrow(length = unit(.1, "inches"), type = "closed")),
+        panel.grid = element_blank(),
+        panel.border = element_blank())
+
+
+ggsave(file.path("..", "output", "alpha_trace_default_nvp.pdf"), device = "pdf", width = 3.5, height = 3)
+
+alpha_trajectories_fact <- filter(alpha_trajectories, condition == "fact") %>%
+  filter(fact_id %in% c(8, 12, 23)) %>%
+  identity()
+
+alpha_trajectories_fact_first <- alpha_trajectories_fact %>%
+  group_by(fact_id) %>%
+  arrange(time) %>%
+  slice(1) %>%
+  ungroup()
+
+alpha_trajectories_fact_last <- alpha_trajectories_fact %>%
+  group_by(fact_id) %>%
+  arrange(time) %>%
+  slice(n()) %>%
+  ungroup()
+
+alpha_trajectories_fact <- alpha_trajectories_fact %>%
+  mutate(fact_id = fct_relevel(fact_id, as.character(c(arrange(alpha_trajectories_fact_last, alpha)$fact_id))))
+
+
+ggplot(alpha_trajectories_fact, aes(x = repetition, y = alpha)) +
+  geom_line(lwd = 1, alpha = 0.6, aes(colour = fact_id)) +
+  geom_point(data = alpha_trajectories_fact_first, size = 1.5) +
+  geom_point(data = alpha_trajectories_fact_first, size = 1.5, alpha = 0.5, aes(colour = fact_id, fill = fact_id)) +
+  geom_point(data = alpha_trajectories_fact_last, size = 2.5, aes(colour = fact_id)) +
+  guides(colour = FALSE, fill = FALSE) +
+  scale_x_continuous(breaks = seq(1, 7, 2)) +
+  scale_y_continuous(breaks = seq(0.2, 0.5, 0.1), limits = c(0.2, 0.5), minor_breaks = NULL) +
+  scale_colour_manual(values = c(rof_pal_discrete)) +
+  labs(x = "Time",
+       y = "Rate of forgetting") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line = element_line(arrow = arrow(length = unit(.1, "inches"), type = "closed")),
+        panel.grid = element_blank(),
+        panel.border = element_blank())
+
+ggsave(file.path("..", "output", "alpha_trace_fact_nvp.pdf"), device = "pdf", width = 3.5, height = 3)
+```
+
+Also make tiny versions:
+```{r}
+ggplot(alpha_trajectories_default, aes(x = repetition, y = alpha)) +
+  geom_line(lwd = 1.5, alpha = 0.6, position = position_dodge(-0.2), aes(colour = fact_id)) +
+  geom_point(data = alpha_trajectories_default_first, size = 1.5) +
+  geom_point(data = alpha_trajectories_default_last, size = 2.5, aes(colour = fact_id)) +
+  guides(colour = FALSE, fill = FALSE) +
+  scale_x_continuous(breaks = seq(1, 7, 2), limits = c(0.9, 7.1)) +
+  scale_y_continuous(breaks = seq(0.2, 0.5, 0.1), limits = c(0.2, 0.5), minor_breaks = NULL) +
+  scale_colour_manual(values = c(rof_pal_discrete)) +
+  labs(x = "Repetition",
+       y = "Rate of forgetting") +
+  theme_nothing()
+
+ggsave(file.path("..", "output", "alpha_trace_default_nvp_tiny.pdf"), device = "pdf", width = .85, height = .85)
+
+ggplot(alpha_trajectories_fact, aes(x = repetition, y = alpha)) +
+  geom_line(lwd = 1.5, alpha = 0.6, aes(colour = fact_id)) +
+  geom_point(data = alpha_trajectories_fact_first, size = 1.5) +
+  geom_point(data = alpha_trajectories_fact_first, size = 1.5, alpha = 0.5, aes(colour = fact_id, fill = fact_id)) +
+  geom_point(data = alpha_trajectories_fact_last, size = 2.5, aes(colour = fact_id)) +
+  guides(colour = FALSE, fill = FALSE) +
+  scale_x_continuous(breaks = seq(1, 7, 2), limits = c(0.9, 7.1)) +
+  scale_y_continuous(breaks = seq(0.2, 0.5, 0.1), limits = c(0.2, 0.5), minor_breaks = NULL) +
+  scale_colour_manual(values = c(rof_pal_discrete)) +
+  labs(x = "Repetition",
+       y = "Rate of forgetting") +
+  theme_nothing()
+
+ggsave(file.path("..", "output", "alpha_trace_fact_nvp_tiny.pdf"), device = "pdf", width = .85, height = .85)
+
+```
+
+
+Also plot rate of forgetting for all items in a session
+```{r}
+
+alpha_session <- bind_rows(rl1, rl2) %>%
+  filter(condition == "default") %>%
+  filter(subject == "mbujpqr56j3lpm9") %>%
+  group_by(fact_id) %>%
+  mutate(time = (start_time - min(start_time)) / 60000) %>%
+  filter(n() > 3) %>%
+  filter(max(alpha) <= 0.5) %>%
+  filter(fact_id != 9) %>%
+  ungroup()
+
+alpha_session_first <- alpha_session %>%
+  group_by(fact_id) %>%
+  arrange(time) %>%
+  slice(1) %>%
+  ungroup()
+
+alpha_session_last <- alpha_session %>%
+  group_by(fact_id) %>%
+  arrange(time) %>%
+  slice(n()) %>%
+  ungroup()
+
+alpha_session <- alpha_session %>%
+  mutate(fact_id = fct_relevel(fact_id, as.character(c(arrange(alpha_session_last, alpha)$fact_id))))
+
+rof_pal_session <- wes_palette("Zissou1", n_distinct(alpha_session$fact_id), type = "continuous")
+
+ggplot(alpha_session, aes(x = start_time/60000, y = alpha, group = fact_id, colour = fact_id)) +
+  geom_line(lwd = 1, alpha = 0.6) +
+  geom_point(data = alpha_session_first, size = 1.5, colour = "black") +
+  geom_point(data = alpha_session_last, size = 2.5) +
+  scale_x_continuous(breaks = seq(0, 10, 2), limits = c(0, 10), minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(0.2, 0.5, 0.1), limits = c(0.2, 0.5), minor_breaks = NULL) +
+  scale_colour_manual(values = c(rof_pal_session)) +
+  guides(colour = FALSE) +
+  labs(x = "Time (minutes)",
+       y = "Rate of forgetting")
+
+ggsave(file.path("..", "output", "alpha_trace_session.pdf"), device = "pdf", width = 6, height = 3)
+
+ggplot(filter(alpha_session, fact_id == 52), aes(x = start_time/60000, y = alpha, group = fact_id, colour = fact_id)) +
+  geom_line(lwd = 1, alpha = 0.6) +
+  geom_point(data = filter(alpha_session_first, fact_id == 52), size = 1.5, colour = "black") +
+  geom_point(data = filter(alpha_session_last, fact_id == 52), size = 2.5) +
+  scale_x_continuous(breaks = seq(0, 10, 2), limits = c(0, 10), minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(0.2, 0.5, 0.1), limits = c(0.2, 0.5), minor_breaks = NULL) +
+  scale_colour_manual(values = c(rof_pal_session)) +
+  guides(colour = FALSE) +
+  labs(x = "Time (minutes)",
+       y = "Rate of forgetting")
+
+ggsave(file.path("..", "output", "alpha_trace_session_onefact.pdf"), device = "pdf", width = 6, height = 3)
+
+```
+
+Try some gganimate
+```{r}
+session_anim <- ggplot(alpha_session, aes(x = start_time/60000, y = alpha, group = fact_id, colour = fact_id)) +
+  geom_line(lwd = 1, alpha = 0.6) +
+  geom_point(size = 2.5) +
+  scale_x_continuous(breaks = seq(0, 10, 2), limits = c(0, 10), minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(0.2, 0.5, 0.1), limits = c(0.2, 0.5), minor_breaks = NULL) +
+  scale_colour_manual(values = c(rof_pal_session)) +
+  guides(colour = FALSE) +
+  labs(x = "Time (minutes)",
+       y = "Rate of forgetting") +
+  transition_reveal(start_time) +
+  ease_aes("cubic-in-out")
+
+animate(session_anim, nframes = 200, fps = 20, width = 1600, height = 1000, res = 300, renderer = gifski_renderer(loop = FALSE))
+anim_save(file.path("..", "output", "alpha_trace_session.gif"))
+```
+
+
+
+
+## Rate of forgetting prediction process
+
+Show how the rate of forgetting is predicted for Seattle.
+```{r}
+seattle <- read_fst(file.path("..", "data", "processed", "s1", "s1_rl_calc.fst")) %>%
+  filter(fact_id == 49) %>%
+  group_by(subject) %>%
+  filter(n() >= 3) %>%
+  ungroup()
+
+seattle_last <- seattle %>%
+  group_by(subject) %>%
+  arrange(start_time) %>%
+  slice(n()) %>%
+  ungroup()
+
+
+seattle_rof <- ggplot(seattle, aes(x = start_time/60000, y = alpha)) +
+  geom_line(alpha = 0.5, aes(colour = subject)) +
+  geom_point(alpha = 0.5, size = 1, aes(colour = subject, fill = subject)) +
+  # geom_mark_ellipse(data = filter(alpha_trajectories_first, condition == "fact"), expand = 0.01, aes(colour = fact_id, fill = fact_id)) +
+  geom_mark_ellipse(data = seattle_last, expand = 0.015, aes(colour = subject, fill = subject)) +
+  guides(colour = FALSE, fill = FALSE) +
+  scale_x_continuous(breaks = seq(0, 10, 2), limits = c(0, 10), minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(0.2, 0.8, 0.1), limits = c(0.199, 0.601), minor_breaks = NULL) +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() +
+  labs(x = "Time (minutes)",
+       y = "Rate of forgetting")
+
+seattle_dist <- ggplot(seattle_last, aes(x = as.factor(fact_id), y = alpha)) +
+  geom_boxplot(outlier.shape = NA, width = 0.75) +
+  geom_point(alpha = 0.5, size = 1, aes(colour = subject, fill = subject), position = position_jitter(width = 0.2, height = 0, seed = 1)) +
+  geom_mark_ellipse(data = seattle_last, expand = 0.06, aes(colour = subject, fill = subject), position = position_jitter(width = 0.2, height = 0, seed = 1)) +
+  guides(colour = FALSE, fill = FALSE) +
+  scale_x_discrete(labels = c("")) +
+  scale_y_continuous(breaks = seq(0.2, 0.8, 0.1), limits = c(0.199, 0.601), minor_breaks = NULL) +
+  scale_colour_viridis_d() +
+  scale_fill_viridis_d() +
+  labs(x = "", 
+       y = "Rate of forgetting") +
+  theme(axis.ticks.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+
+seattle_rof + seattle_dist + plot_layout(widths = c(0.8, 0.2))
+
+ggsave(file.path("..", "output", "predicting_seattle.pdf"), device = "pdf", width = 5, height = 3)
+
+```
+
+
+Simplified version for NVP:
+```{r}
+
+seattle_rof <- ggplot(seattle, aes(x = start_time / 60000, y = alpha)) +
+  geom_line(lwd = 1, alpha = 0.6, aes(colour = subject)) +
+  geom_point(data = seattle_last, size = 2.5, aes(colour = subject)) +
+  scale_colour_viridis_d() +
+  guides(colour = FALSE) +
+  scale_x_continuous(breaks = seq(0, 10, 2)) +
+  scale_y_continuous(breaks = seq(0.2, 0.55, 0.1), limits = c(0.2, 0.55), minor_breaks = NULL) +
+  labs(x = "Time (minutes)",
+       y = "Rate of forgetting") +
+  theme(panel.grid.minor = element_blank())
+
+
+# seattle_rof <- ggplot(seattle, aes(x = start_time/60000, y = alpha)) +
+#   geom_line(alpha = 0.5, aes(colour = subject)) +
+#   geom_point(alpha = 0.5, size = 1, aes(colour = subject, fill = subject)) +
+#   geom_mark_ellipse(data = filter(alpha_trajectories_first, condition == "fact"), expand = 0.01, aes(colour = fact_id, fill = fact_id)) +
+#   geom_mark_ellipse(data = seattle_last, expand = 0.015, aes(colour = subject, fill = subject)) +
+#   guides(colour = FALSE, fill = FALSE) +
+#   scale_x_continuous(breaks = seq(0, 10, 2), limits = c(0, 10), minor_breaks = NULL) +
+#   scale_y_continuous(breaks = seq(0.2, 0.8, 0.1), limits = c(0.199, 0.601), minor_breaks = NULL) +
+#   scale_colour_manual(values = c(rof_pal_seattle)) +
+#   scale_fill_viridis_d() +
+#   labs(x = "Time (minutes)",
+#        y = "Rate of forgetting")
+# #
+seattle_dist <- ggplot(seattle_last, aes(x = as.factor(fact_id), y = alpha)) +
+  geom_boxplot(outlier.shape = NA, width = 0.75) +
+  geom_point(size = 2.5, aes(colour = subject, fill = subject), position = position_jitter(width = 0.2, height = 0, seed = 1)) +
+  # geom_point(alpha = 0.5, size = 1, aes(colour = subject, fill = subject), position = position_jitter(width = 0.2, height = 0, seed = 1)) +
+  # geom_mark_ellipse(data = seattle_last, expand = 0.06, aes(colour = subject, fill = subject), position = position_jitter(width = 0.2, height = 0, seed = 1)) +
+  guides(colour = FALSE, fill = FALSE) +
+  scale_x_discrete(labels = c("")) +
+  scale_y_continuous(breaks = seq(0.2, 0.55, 0.1), limits = c(0.2, 0.55), minor_breaks = NULL) +
+  scale_colour_viridis_d() +
+  scale_fill_viridis_d() +
+  labs(x = "",
+       y = "Rate of forgetting") +
+  theme(axis.ticks.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+#
+seattle_rof + seattle_dist + plot_layout(widths = c(0.8, 0.2))
+
+ggsave(file.path("..", "output", "predicting_seattle_nvp.pdf"), device = "pdf", width = 5, height = 3)
+
+```
+
+
+
+
+# Learning outcomes (simplified)
+
+For the presentation, collapse over condition order in the learning outcome plots.
+
+
+## Test accuracy
+```{r}
+s2_test1 <- read_fst(file.path("..", "data", "processed", "s2", "s2_test1.fst"))
+s2_test2 <- read_fst(file.path("..", "data", "processed", "s2", "s2_test2.fst"))
+test_full <- bind_rows(s2_test1, s2_test2) %>%
+  mutate(block = as.factor(block)) %>%
+  mutate(condition_alt = ifelse(condition == "default", "Default", "Predictive"))
+
+test_studied_full <- filter(test_full, studied)
+
+s2_exclude <- read_fst(file.path("..", "data", "processed", "s2", "s2_exclude.fst"))
+
+test <- anti_join(test_full, s2_exclude, by = "subject") %>% droplevels()
+test_studied <- anti_join(test_studied_full, s2_exclude, by = "subject") %>% droplevels()
+
+test_acc_studied <- test_studied %>%
+  group_by(subject, block, condition, condition_alt) %>%
+  summarise(p_corr = mean(correct)) %>%
+    mutate(condition_order = case_when(
+    block == 1 && condition == "default" ~ "Default-Fact",
+    block == 2 && condition == "fact" ~ "Default-Fact",
+    block == 1 && condition == "fact" ~ "Fact-Default",
+    block == 2 && condition == "default" ~ "Fact-Default"
+  ))
+```
+
+```{r}
+ggplot(test_acc_studied, aes(x = condition_alt, y = p_corr)) +
+  geom_violin() +
+  geom_jitter(aes(colour = condition), height = 0, width = 0.15, alpha = 0.5) +
+  geom_boxplot(width = 0.2, outlier.size = NULL, alpha = 0.75) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent_format()) +
+  guides(colour = FALSE) +
+  scale_color_viridis_d(begin = 0.2, end = 0.8) +
+  labs(x = NULL,
+       y = NULL,
+       title = "Test accuracy")
+
+ggsave(file.path("..", "output", "test_acc_simple.pdf"), device = "pdf", width = 3, height = 3)
+```
+
+## Test score
+
+How many items did participants answer correctly, out of 30?
+```{r}
+test_studied %>%
+  group_by(subject, condition_alt) %>%
+  summarise(score = sum(correct)) %>%
+  ggplot(aes(x = condition_alt, y = score)) +
+  geom_violin() +
+  geom_jitter(aes(colour = condition_alt), height = 0, width = 0.15, alpha = 0.5) +
+  geom_boxplot(width = 0.2, outlier.size = NULL, alpha = 0.75) +
+  scale_y_continuous(limits = c(0, 30)) +
+  guides(colour = FALSE) +
+  scale_color_viridis_d(begin = 0.2, end = 0.8) +
+  labs(x = NULL,
+       y = NULL,
+       title = "Test score")
+
+ggsave(file.path("..", "output", "test_score_simple.pdf"), device = "pdf", width = 3, height = 3)
+
+```
+
+
+## Learning session accuracy
+
+```{r}
+learning_stats <- bind_rows(rl1, rl2) %>%
+  anti_join(s2_exclude, by = "subject") %>%
+  droplevels() %>%
+  mutate(condition_alt = ifelse(condition == "default", "Default", "Predictive")) %>%
+  group_by(subject, condition, condition_alt, block) %>%
+  summarise(accuracy = mean(correct),
+            n_items = n_distinct(fact_id))
+```
+```{r}
+ggplot(learning_stats, aes(x = condition_alt, y = accuracy)) +
+  geom_violin() +
+  geom_jitter(aes(colour = condition), height = 0, width = 0.15, alpha = 0.5) +
+  geom_boxplot(width = 0.2, outlier.size = NULL, alpha = 0.75) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent_format()) +
+  guides(colour = FALSE) +
+  scale_color_viridis_d(begin = 0.2, end = 0.8) +
+  labs(x = NULL,
+       y = NULL,
+       title = "Learning accuracy")
+
+ggsave(file.path("..", "output", "learning_acc_simple.pdf"), device = "pdf", width = 3, height = 3)
+
+```
+
+
+## Learning session number of items
+
+```{r}
+ggplot(learning_stats, aes(x = condition_alt, y = n_items)) +
+  geom_violin() +
+  geom_jitter(aes(colour = condition), height = 0, width = 0.15, alpha = 0.5) +
+  geom_boxplot(width = 0.2, outlier.size = NULL, alpha = 0.75) +
+  scale_y_continuous(limits = c(0, 30)) +
+  guides(colour = FALSE) +
+  scale_color_viridis_d(begin = 0.2, end = 0.8) +
+  labs(x = NULL,
+       y = NULL,
+       title = "Items studied")
+
+ggsave(file.path("..", "output", "learning_items_simple.pdf"), device = "pdf", width = 3, height = 3)
+
+```
+
+
+# Session info
+```{r}
+sessionInfo()
+```

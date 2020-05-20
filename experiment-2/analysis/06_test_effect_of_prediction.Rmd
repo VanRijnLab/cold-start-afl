@@ -1,0 +1,589 @@
+---
+title: 'Predicting Alpha: Test of Hypothesis 1'
+author: "Maarten van der Velde"
+date: "Last updated: `r Sys.Date()`"
+output:
+  html_notebook:
+    smart: no
+    toc: yes
+    toc_float: yes
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+# Overview
+
+This notebook tests our preregistered hypothesis that there is an effect of condition on the probability of correctly recalling a studied item on a test.
+
+# Setup
+
+```{r}
+library(BayesFactor)
+library(dplyr)
+library(data.table)
+library(forcats)
+library(ggplot2)
+library(purrr)
+library(readr)
+library(stringr)
+library(tidyr)
+library(extrafont)
+library(wesanderson)
+library(tikzDevice)
+library(fst)
+library(brms)
+library(ggridges)
+library(lme4)
+library(future)
+
+plan(multiprocess)
+
+# font_import() # Run once to populate the R font database with the fonts on the system
+loadfonts(quiet = TRUE)
+
+theme_poster <- theme_light(base_size = 14) +
+            theme(text = element_text(family = 'Merriweather Sans'),
+                  strip.text = element_text(colour = "black")) 
+
+theme_paper <- theme_bw() + 
+  theme(axis.text = element_text(colour = "black"))
+
+condition_colours <- wes_palette("Darjeeling1", n = 5)
+condition_colours <- condition_colours[c(1,3)]
+
+knitr::opts_chunk$set(fig.width=16, fig.height=16)
+
+set.seed(0)
+```
+
+# Prepare data
+
+```{r}
+s2_test1 <- read_fst(file.path("..", "data", "processed", "s2", "s2_test1.fst"))
+s2_test2 <- read_fst(file.path("..", "data", "processed", "s2", "s2_test2.fst"))
+test_full <- bind_rows(s2_test1, s2_test2) %>%
+  mutate(block = as.factor(block),
+         condition = as.factor(str_to_title(condition)))
+
+test_studied_full <- filter(test_full, studied)
+```
+Filter out excluded participant:
+```{r}
+s2_exclude <- read_fst(file.path("..", "data", "processed", "s2", "s2_exclude.fst"))
+
+test <- anti_join(test_full, s2_exclude, by = "subject") %>% droplevels()
+test_studied <- anti_join(test_studied_full, s2_exclude, by = "subject") %>% droplevels()
+```
+
+# Test accuracy
+
+According to our hypothesis, test accuracy should be higher in the *fact* blocks than in the *default* blocks, since facts are repeated with a more appropriate schedule from the start.
+
+The plot below shows the percentage of correct answers on the test in each block, split by condition order.
+Only test items that appeared during the learning session are included.
+
+```{r}
+test_acc_studied <- test_studied %>%
+  group_by(subject, block, condition) %>%
+  summarise(p_corr = mean(correct)) %>%
+    mutate(condition_order = case_when(
+    block == 1 && condition == "Default" ~ "Default-Fact",
+    block == 2 && condition == "Fact" ~ "Default-Fact",
+    block == 1 && condition == "Fact" ~ "Fact-Default",
+    block == 2 && condition == "Default" ~ "Fact-Default"
+  ))
+```
+
+```{r}
+ggplot(test_acc_studied, aes(x = block, y = p_corr)) +
+  facet_grid(~ condition_order) +
+  geom_violin() +
+  geom_boxplot(width = 0.2) +
+  labs(x = "Block", y = "Accuracy") +
+  theme_poster
+```
+
+Make the plot shown in the paper:
+```{r}
+p <- test_acc_studied %>%
+  ggplot(aes(y = p_corr, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_y_continuous(labels = scales::percent_format(suffix = "\\%")) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Test accuracy") +
+  theme_paper
+
+tikz(file = "../output/test-accuracy.tex", width = 4.75/2, height = 2)
+p
+dev.off()
+
+p
+```
+
+
+# Logistic mixed-effects model
+
+As preregistered, we will evaluate the strength of evidence for an effect of condition on the probability of answering test items correctly using a logistic mixed effects model, with main effects for condition and block, and random intercepts for items and subjects.
+The fixed effects will be sum-to-zero contrast-coded and will have Cauchy(0,1) priors.
+
+We will then perform a Savage-Dickey density ratio test to establish the strength of evidence for an effect of condition.
+
+## Model fitting
+Set up contrast coding so that the model intercept reflects the grand mean p(correct), allowing us to assess the effects of condition and block separately:
+```{r}
+contrasts(test_studied$condition) <- c(-0.5, 0.5)
+contrasts(test_studied$condition)
+
+contrasts(test_studied$block) <- c(-0.5, 0.5)
+contrasts(test_studied$block)
+```
+
+Set the priors for the fixed effects:
+```{r}
+prior_m1 <- set_prior("cauchy(0, 1)", class = "b")
+```
+
+Fit the model:
+```{r}
+m1 <- brm(
+  correct ~ condition + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1"
+)
+```
+
+## Model inspection
+Ensure that MCMC went as expected.
+The caterpillar plots look normal, and there is no evidence of autocorrelation in the chains.
+```{r, fig.width = 12}
+mcmc_plot(m1, pars = c("condition", "block"), type = "trace")
+
+mcmc_plot(m1, pars = c("condition", "block"), type = "acf_bar")
+```
+
+## Model interpretation
+Model summary:
+```{r}
+summary(m1)
+```
+
+Visualise the model's population-level estimates, along with their 95% credible intervals:
+```{r}
+mcmc_plot(m1, pars = c("condition", "block"), type = "areas", prob = .95)
+```
+
+The model makes the following predictions, based on its fixed effects.
+
+```{r}
+# Get fitted values
+new_data <- crossing(condition = levels(test_studied$condition), block = levels(test_studied$block))
+fit_m1 <- data.table(fitted(m1,
+                            newdata = new_data,
+                            re_formula = NA,
+                            summary = FALSE))
+setnames(fit_m1, as.character(interaction(new_data$condition, new_data$block)))
+
+fit_m1_summary <- data.table(fitted(m1,
+                                    newdata = new_data,
+                                    re_formula = NA))
+setnames(fit_m1_summary, c("fit", "se", "lower", "upper"))
+fit_m1_summary <- cbind(new_data, fit_m1_summary)
+```
+
+
+Overall response accuracy (across blocks and conditions):
+```{r}
+quantile((fit_m1$Default.1 + fit_m1$Default.2 + fit_m1$Fact.1 + fit_m1$Fact.2)/4,
+         probs = c(.5, .025, .975))
+```
+
+Difference in response accuracy between Fact condition and Default condition (across blocks): 
+```{r}
+fact_vs_default <- (fit_m1$Fact.1 + fit_m1$Fact.2)/2 - (fit_m1$Default.1 + fit_m1$Default.2)/2
+quantile(fact_vs_default, probs = c(.5, .025, .975))
+```
+
+Difference in response accuracy between block 2 and block 1 (across conditions):
+```{r}
+block2_vs_block1 <- (fit_m1$Default.2 + fit_m1$Fact.2)/2 - (fit_m1$Default.1 + fit_m1$Fact.1)/2
+quantile(block2_vs_block1, probs = c(.5, .025, .975))
+```
+
+
+
+## Hypothesis testing
+
+Now we can test the hypothesis that there is an effect of condition against the null hypothesis that there is not.
+We do this by computing the density ratio between the posterior and the prior of the condition coefficient at 0.
+The prior is a Cauchy(0,1) distribution, which means we can calculate its density at 0 analytically.
+The posterior density is estimated on the basis of the posterior samples from the model.
+
+```{r}
+prior_density_at_zero <- dcauchy(0, 0, 1)
+m1_posterior_samples <- posterior_samples(m1, pars = "b_condition1")$b_condition1
+posterior_density_at_zero <- density_ratio(m1_posterior_samples, point = 0)
+
+
+xval <- seq(-2, 2, by = 0.01)
+plot_prior <- dcauchy(xval, location = 0, scale = 1)
+plot_posterior <- density_ratio(x = m1_posterior_samples, y = NULL, point = xval) # Returns the density of the posterior at each point in x
+m1_density <- tibble(xval = xval, Prior = plot_prior, Posterior = plot_posterior)
+```
+
+```{r}
+gather(m1_density, -xval, key = "Type", value = "density") %>%
+  mutate(density = ifelse(density < 0, 0, density)) %>%
+  ggplot(aes(x = xval, y = density, fill = Type)) +
+  geom_area(position = "identity", colour = "black", alpha = 0.75) +
+  geom_vline(xintercept = 0, lty = 3) +
+  annotate("point", x = c(0, 0), y = c(prior_density_at_zero, posterior_density_at_zero)) +
+  labs(x = "Estimate for coefficient 'condition'", y = NULL, title = "") +
+  scale_fill_manual(values = c("#03396c", "#b3cde0"))
+
+ggsave(file.path("..", "output", "sd_ratio.pdf"), device = "pdf", width = 4, height = 3)
+```
+
+The evidence in favour of a non-zero coefficient for condition is evaluated by means of the Savage-Dickey density ratio: the ratio between the prior and posterior density at $\beta_{condition} = 0$ (the two points on the dotted line in the plot above).
+```{r}
+BF_condition <- prior_density_at_zero / posterior_density_at_zero
+
+BF_condition
+```
+
+The evidence in favour of an effect of condition is $BF_{10}$ = `r format(BF_condition)`.
+
+
+
+# Sanity checks
+
+## Test effect of prior
+
+What if we choose a weaker Cauchy(0, 10) prior?
+```{r}
+prior_m1_weak <- set_prior("cauchy(0, 10)", class = "b")
+```
+
+Fit the model:
+```{r}
+m1_weak <- brm(
+  correct ~ condition + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1_weak,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_weak"
+)
+```
+
+
+```{r}
+prior_density_at_zero_weak <- dcauchy(0, 0, 10)
+m1_weak_posterior_samples <- posterior_samples(m1_weak, pars = "b_condition1")$b_condition1
+posterior_density_at_zero_weak <- density_ratio(m1_weak_posterior_samples, point = 0)
+
+
+xval <- seq(-2, 2, by = 0.01)
+plot_prior_weak <- dcauchy(xval, location = 0, scale = 10)
+plot_posterior_weak <- density_ratio(x = m1_weak_posterior_samples, y = NULL, point = xval) # Returns the density of the posterior at each point in x
+m1_weak_density <- tibble(xval = xval, Prior = plot_prior_weak, Posterior = plot_posterior_weak)
+```
+
+```{r}
+gather(m1_weak_density, -xval, key = "Type", value = "density") %>%
+  mutate(density = ifelse(density < 0, 0, density)) %>%
+  ggplot(aes(x = xval, y = density, fill = Type)) +
+  geom_area(position = "identity", colour = "black", alpha = 0.75) +
+  geom_vline(xintercept = 0, lty = 3) +
+  annotate("point", x = c(0, 0), y = c(prior_density_at_zero_weak, posterior_density_at_zero_weak)) +
+  labs(x = "Estimate for coefficient 'condition'", y = NULL, title = "") +
+  scale_fill_manual(values = c("#03396c", "#b3cde0"))
+```
+
+Even with the much weaker prior, the evidence in favour of an effect of condition is still very strong.
+
+```{r}
+BF_condition_weak <- prior_density_at_zero_weak / posterior_density_at_zero_weak
+
+BF_condition_weak
+```
+
+How about a stronger Cauchy(0, 0.5) prior?
+```{r}
+prior_m1_strong <- set_prior("cauchy(0, 0.5)", class = "b")
+```
+
+Fit the model:
+```{r}
+m1_strong <- brm(
+  correct ~ condition + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1_strong,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_strong"
+)
+```
+
+
+```{r}
+prior_density_at_zero_strong <- dcauchy(0, 0, 0.5)
+m1_strong_posterior_samples <- posterior_samples(m1_strong, pars = "b_condition1")$b_condition1
+posterior_density_at_zero_strong <- density_ratio(m1_strong_posterior_samples, point = 0)
+
+
+xval <- seq(-2, 2, by = 0.01)
+plot_prior_strong <- dcauchy(xval, location = 0, scale = 0.5)
+plot_posterior_strong <- density_ratio(x = m1_strong_posterior_samples, y = NULL, point = xval) # Returns the density of the posterior at each point in x
+m1_strong_density <- tibble(xval = xval, Prior = plot_prior_strong, Posterior = plot_posterior_strong)
+```
+
+```{r}
+gather(m1_strong_density, -xval, key = "Type", value = "density") %>%
+  mutate(density = ifelse(density < 0, 0, density)) %>%
+  ggplot(aes(x = xval, y = density, fill = Type)) +
+  geom_area(position = "identity", colour = "black", alpha = 0.75) +
+  geom_vline(xintercept = 0, lty = 3) +
+  annotate("point", x = c(0, 0), y = c(prior_density_at_zero_strong, posterior_density_at_zero_strong)) +
+  labs(x = "Estimate for coefficient 'condition'", y = NULL, title = "") +
+  scale_fill_manual(values = c("#03396c", "#b3cde0"))
+```
+
+With the stronger prior, the evidence in favour of an effect of condition is again very strong.
+
+```{r}
+BF_condition_strong <- prior_density_at_zero_strong / posterior_density_at_zero_strong
+
+BF_condition_strong
+```
+
+
+
+## Test effect of outliers
+
+The analysis above did not include data from excluded participants (see Prepare data section).
+Verify that this does not affect the conclusion by also fitting the model to the full dataset.
+
+```{r}
+contrasts(test_studied_full$condition) <- c(-0.5, 0.5)
+contrasts(test_studied_full$condition)
+
+contrasts(test_studied_full$block) <- c(-0.5, 0.5)
+contrasts(test_studied_full$block)
+```
+
+
+```{r}
+m1_full <- brm(
+  correct ~ condition + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied_full,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_full"
+)
+```
+
+Check the chains:
+```{r}
+mcmc_plot(m1_full, pars = c("condition", "block"), type = "trace")
+mcmc_plot(m1_full, pars = c("condition", "block"), type = "acf_bar")
+```
+
+The model estimates look very similar.
+```{r}
+summary(m1_full)
+```
+
+```{r}
+m1_full_posterior_samples <- posterior_samples(m1_full, pars = "b_condition1")$b_condition1
+posterior_density_at_zero_full <- density_ratio(m1_full_posterior_samples, point = 0)
+
+plot_posterior_full <- density_ratio(x = m1_full_posterior_samples, y = NULL, point = xval) # Returns the density of the posterior at each point in x
+m1_full_density <- tibble(xval = xval, Prior = plot_prior, Posterior = plot_posterior_full)
+```
+
+```{r}
+gather(m1_full_density, -xval, key = "Type", value = "density") %>%
+  mutate(density = ifelse(density < 0, 0, density)) %>%
+  ggplot(aes(x = xval, y = density, fill = Type)) +
+  geom_area(position = "identity", colour = "black", alpha = 0.75) +
+  geom_vline(xintercept = 0, lty = 3) +
+  annotate("point", x = c(0, 0), y = c(prior_density_at_zero, posterior_density_at_zero)) +
+  labs(x = "Estimate for coefficient 'condition'", y = NULL, title = "") +
+  scale_fill_manual(values = c("#03396c", "#b3cde0"))
+```
+
+The Savage-Dickey density ratio is very similar.
+```{r}
+BF_condition_full <- prior_density_at_zero / posterior_density_at_zero_full
+
+BF_condition_full
+```
+
+
+
+## Compare to frequentist model
+
+Fit a frequentist glmer with the same model structure.
+The model summary confirms that we get the same coefficient estimates as with the Bayesian model.
+```{r}
+m1_freq <- glmer(correct ~ condition + block + (1 | subject) + (1 | fact_id),
+                 family = binomial,
+                 data = test_studied)
+
+summary(m1_freq)
+```
+
+
+## Compare SD density ratio to bridge sampling
+
+An alternative method to test for an effect of condition is to compare the marginal likelihood of a model with the predictor to that of a model without it.
+We can obtain the marginal likelihoods using bridge sampling.
+This comparison yields a Bayes factor that can be interpreted in the same way.
+
+Fit a second model without condition as a predictor:
+```{r}
+m2 <- brm(
+  correct ~ block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m2"
+)
+```
+
+Calculate the Bayes factor:
+```{r}
+bayes_factor(m1, m2)
+```
+
+Again, it's basically the same as before.
+
+
+
+# Accumulation of evidence
+
+How does $BF_{10}$ develop as more participants are added?
+The following code fits the model repeatedly, each time adding several more participants, and calculates the $BF_{10}$ for each fit.
+
+```{r}
+subjects <- unique(test_studied$subject)
+set_sizes <- seq(1, length(subjects), by = 1)
+
+evidence <- tibble(n = 0, bf = NA, posterior = list(rcauchy(n = 20000, location = 0, scale = 1)))
+
+for (i in set_sizes) {
+  
+  # Subset the data
+  test_studied_subset <- filter(test_studied, subject %in% subjects[1:i])
+  
+  # Fit the model
+  m1_seq <- brm(correct ~ condition + block + (1 | subject) + (1 | fact_id), 
+           family = bernoulli,
+           data = test_studied_subset,
+           prior = prior_m1,
+           chains = 4,
+           iter = 10000,
+           save_all_pars = TRUE,
+           sample_prior = TRUE,
+           future = TRUE,
+           refresh = 0,
+           open_progress = FALSE,
+           seed = 0,
+           file = paste0("model_fits/m1_seq", i))
+  
+  m1_seq_posterior_samples <- posterior_samples(m1_seq, pars = "b_condition1")$b_condition1
+  posterior_density_at_zero_seq <- density_ratio(m1_seq_posterior_samples, point = 0)
+
+  BF_condition_seq <- prior_density_at_zero / posterior_density_at_zero_seq
+  
+  evidence_seq <- tibble(n = i, bf = BF_condition_seq, posterior = list(m1_seq_posterior_samples))
+  evidence <- bind_rows(evidence, evidence_seq)
+}
+
+```
+
+The plot below shows the sequential Bayes factors resulting from this analysis.
+(Bayes factors calculated from very small samples sizes should obviously be treated with caution.)
+The accumulation of evidence in favour of an effect of condition is clear.
+As the BF becomes larger, there are some large upward spikes; this is because by this point there is essentially no posterior mass left at zero, which makes the SD density ratio very sensitive to small fluctuations in the estimated posterior due to the randomness of MCMC sampling.
+
+The days of data collection are marked in the plot. The stopping rule, which was evaluated at the end of each day, required there to be data from at least 40 participants *and* a BF of 10 or greater in either direction (this boundary is indicated by horizontal lines).
+At the end of day 2 we had collected data from more than 40 participants, but the BF was still within the boundaries, so we collected data for another day.
+
+```{r}
+seq_plot <- ggplot(filter(evidence, n > 0), aes(n, bf)) +
+  annotate("rect", xmin = 0, xmax = 27, ymin = 1/100, ymax = 1000000, fill = "#1b9e77", alpha = 0.2) +
+  annotate("rect", xmin = 27, xmax = 42, ymin = 1/100, ymax = 1000000, fill = "#d95f02", alpha = 0.2) +
+  annotate("rect", xmin = 42, xmax = 68, ymin = 1/100, ymax = 1000000, fill = "#7570b3", alpha = 0.2) +
+  annotate("text", label = c("Day 1", "Day 2", "Day 3"), x = c(13.5, 34.5, 55), y = 0.02) +
+  geom_hline(yintercept = c(0.1, 1, 10), lty = c(1, 3, 1)) +
+  geom_vline(xintercept = c(0, 27, 42, 68), lty = 2) +
+  geom_line() +
+  geom_point() +
+  scale_y_log10(limits = c(1/100, 1000000), breaks = c(1/100, 1/10, 1, 10, 100, 1000, 10000, 100000, 1000000), labels = function(n) {format(n, scientific = FALSE, drop0trailing = TRUE)}) +
+  labs(x = "Sample size", y = "BF10", title = "Sequential Bayes factors in favour of an effect of condition")
+
+seq_plot
+```
+
+The plot below shows how the posterior for the condition coefficient develops as the sample size increases.
+The dashed vertical line represents the point at which the posterior density is compared to the prior density (shown at the bottom in grey).
+
+```{r, fig.height=8, fig.width=5}
+unnest_legacy(evidence) %>%
+  ggplot(aes(x = posterior, y = n, group = n, fill = n == 0)) +
+  geom_vline(xintercept = 0, lty = 2) +
+  geom_density_ridges2(scale = 10, size = 0.25) +
+  scale_x_continuous(limits = c(-2, 2)) +
+  labs(x = "Estimate for coefficient 'condition'", y = "Sample size", title = "Sequential posteriors for 'condition'") +
+  scale_fill_manual(values = c("#b3cde0", "#636363")) +
+  guides(fill = FALSE)
+```
+
+
+
+# Session info
+```{r}
+sessionInfo()
+```
+

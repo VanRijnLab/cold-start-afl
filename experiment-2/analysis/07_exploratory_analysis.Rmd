@@ -1,0 +1,1856 @@
+---
+title: 'Predicting Alpha: Exploratory Analysis'
+author: "Maarten van der Velde"
+date: "Last updated: `r Sys.Date()`"
+output:
+  html_notebook:
+    smart: no
+    toc: yes
+    toc_float: yes
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+# Overview
+
+This notebook contains additional exploratory analyses.
+
+
+# Setup
+```{r}
+library(dplyr)
+library(data.table)
+library(ggplot2)
+library(brms)
+library(future)
+library(fst)
+library(tidyr)
+library(readr)
+library(stringr)
+library(extrafont)
+library(wesanderson)
+library(tikzDevice)
+library(lme4)
+library(future)
+
+plan(multiprocess)
+
+# font_import() # Run once to populate the R font database with the fonts on the system
+loadfonts(quiet = TRUE)
+
+theme_poster <- theme_light(base_size = 14) +
+            theme(text = element_text(family = 'Merriweather Sans'),
+                  strip.text = element_text(colour = "black")) 
+
+theme_paper <- theme_bw() + 
+  theme(axis.text = element_text(colour = "black"))
+
+condition_colours <- wes_palette("Darjeeling1", n = 5)
+condition_colours <- condition_colours[c(1,3)]
+
+knitr::opts_chunk$set(fig.width=16, fig.height=16)
+
+set.seed(0)
+```
+
+
+# Model comparison
+
+Using the preregistered model as a reference model, we can also evaluate simpler and more complex models.
+
+Refit the preregistered model:
+
+```{r}
+s2_test1 <- read_fst(file.path("..", "data", "processed", "s2", "s2_test1.fst"))
+s2_test2 <- read_fst(file.path("..", "data", "processed", "s2", "s2_test2.fst"))
+test_full <- bind_rows(s2_test1, s2_test2) %>%
+  mutate(block = as.factor(block))
+
+test_studied_full <- filter(test_full, studied)
+
+# Filter out excluded participant:
+s2_exclude <- read_fst(file.path("..", "data", "processed", "s2", "s2_exclude.fst"))
+test <- anti_join(test_full, s2_exclude, by = "subject") %>% droplevels()
+test_studied <- anti_join(test_studied_full, s2_exclude, by = "subject") %>% droplevels()
+
+
+contrasts(test_studied$condition) <- c(-0.5, 0.5)
+contrasts(test_studied$block) <- c(-0.5, 0.5)
+```
+
+```{r}
+prior_m1 <- set_prior("cauchy(0, 1)", class = "b")
+
+m1 <- brm(
+  correct ~ condition + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1"
+)
+```
+
+
+## Simpler models
+
+A model that removes the effect of condition:
+```{r}
+m1_nocond <- brm(
+  correct ~ block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_nocond"
+)
+
+bf_nocond <- bayes_factor(m1, m1_nocond)$bf
+```
+
+A model that removes the effect of block:
+```{r}
+m1_noblock <- brm(
+  correct ~ condition + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_noblock"
+)
+
+bf_noblock <- bayes_factor(m1, m1_noblock)$bf
+```
+
+An intercept-only model:
+```{r}
+m1_intercept <- brm(
+  correct ~ 1 + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied,
+  # prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_intercept"
+)
+
+bf_intercept <- bayes_factor(m1, m1_intercept)$bf
+```
+
+A model without random subject intercepts:
+```{r}
+m1_nosubj <- brm(
+  correct ~ condition + block + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_nosubj"
+)
+
+bf_nosubj <- bayes_factor(m1, m1_nosubj)$bf
+```
+
+A model without random fact intercepts:
+```{r}
+m1_nofact <- brm(
+  correct ~ condition + block + (1 | subject),
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_nofact"
+)
+
+bf_nofact <- bayes_factor(m1, m1_nofact)$bf
+```
+Finally, a model without any random effects:
+```{r}
+m1_norand <- brm(
+  correct ~ condition + block,
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_norand"
+)
+
+bf_norand <- bayes_factor(m1, m1_norand)$bf
+```
+
+
+## More complex models
+
+Interaction between condition and block:
+```{r}
+m1_X <- brm(
+  correct ~ condition * block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_X"
+)
+
+bf_X <- bayes_factor(m1, m1_X)$bf
+```
+
+
+## Bayes factor comparison
+
+```{r}
+model_formula <- function(model) {
+  return(as.character(model$formula$formula)[3])
+}
+
+model_comp <- tibble(model = c(model_formula(m1),
+                 model_formula(m1_nocond), 
+                 model_formula(m1_noblock), 
+                 model_formula(m1_intercept),
+                 model_formula(m1_nosubj),
+                 model_formula(m1_nofact),
+                 model_formula(m1_norand),
+                 model_formula(m1_X)),
+               bf = c(1,
+                      bf_nocond, 
+                      bf_noblock,
+                      bf_intercept,
+                      bf_nosubj,
+                      bf_nofact,
+                      bf_norand,
+                      bf_X))
+
+```
+
+The plot below shows the relative likelihood of the data under each model, with the preregistered model (shown in bold) taken as the reference level.
+All Bayes factors are smaller than 1, indicating that, out of these models, the preregistered model is the preferred model.
+Only the model with an interaction between the fixed effects comes close: the data are `r 1/bf_X` times as likely under that model relative to the best model.
+```{r}
+ggplot(model_comp, aes(x = reorder(model, -bf), y = 1/bf)) +
+  geom_hline(yintercept = 1) +
+  geom_col() +
+  scale_y_log10(limits = c(1/1e12, 100), breaks = c(100, 1, 1/100, 1/10000, 1/1000000, 1/100000000, 1/10000000000, 1/1000000000000),
+                labels = function(n) {format(n, scientific = FALSE, drop0trailing = TRUE)}) +
+  coord_flip() +
+  labs(x = "Predictors", y = "Bayes factor") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.text.y = element_text(face = c("plain", "plain", "plain", "plain", "plain", "plain", "plain", "bold")))
+```
+
+
+
+
+# Test accuracy as function of difficulty
+
+## Predicted difficulty
+
+We expect response accuracy on the test to be affected by the difficulty of the item, with lower accuracy on items that are predicted to be more difficult.
+
+```{r}
+cities <- read_csv(file.path("..", "stimuli", "setC_with_alpha.csv"), col_types = cols(
+  id = col_factor(),
+  image = col_character(),
+  text = col_logical(),
+  answer = col_character()
+)) %>%
+  select(fact_id = id, answer, alpha = mu)
+
+test_studied_alpha <- left_join(test_studied, cities, by = "fact_id")
+```
+
+
+```{r}
+prior_m_difficulty <- set_prior("cauchy(0, 1)", class = "b")
+
+m_difficulty <- brm(
+  correct ~ alpha * condition * block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha,
+  prior = prior_m_difficulty,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty"
+)
+```
+
+
+Also fit simpler models for comparison:
+```{r}
+m_difficulty_2 <- brm(
+  correct ~ alpha + condition * block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha,
+  prior = prior_m_difficulty,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_2"
+)
+
+m_difficulty_3 <- brm(
+  correct ~ alpha * condition + block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha,
+  prior = prior_m_difficulty,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_3"
+)
+
+m_difficulty_4 <- brm(
+  correct ~ alpha + condition + block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha,
+  prior = prior_m_difficulty,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_4"
+)
+```
+
+```{r}
+bayes_factor(m_difficulty, m_difficulty_2)
+bayes_factor(m_difficulty, m_difficulty_3)
+bayes_factor(m_difficulty, m_difficulty_4)
+```
+
+The difference between models is not very large, but the best model among the tested alternatives is one with an interaction between predicted rate of forgetting and condition, plus main effects for rate of forgetting, condition, and block, and random intercepts for subjects.
+
+The posteriors of this model are as follows:
+```{r}
+mcmc_plot(m_difficulty_3, pars = c("alpha", "condition", "block"), type = "areas", prob = .95)
+```
+
+What if we leave out the condition main effect?
+```{r}
+m_difficulty_5 <- brm(
+  correct ~ alpha + alpha:condition + block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha,
+  prior = prior_m_difficulty,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_5"
+)
+
+bayes_factor(m_difficulty_3, m_difficulty_5)
+```
+
+Better!
+```{r}
+mcmc_plot(m_difficulty_5, pars = c("alpha", "condition", "block"), type = "areas", prob = .95)
+```
+
+What if we leave out the main effect of alpha?
+
+```{r}
+m_difficulty_6 <- brm(
+  correct ~ alpha:condition + block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha,
+  prior = prior_m_difficulty,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_6"
+)
+
+bayes_factor(m_difficulty_5, m_difficulty_6)
+```
+
+Worse.
+
+What if we drop the random subject intercept?
+```{r}
+m_difficulty_7 <- brm(
+  correct ~ alpha + alpha:condition + block,
+  family = bernoulli,
+  data = test_studied_alpha,
+  prior = prior_m_difficulty,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_7"
+)
+
+bayes_factor(m_difficulty_5, m_difficulty_7)
+```
+
+Much worse.
+
+What if we leave out the main effect of block?
+```{r}
+m_difficulty_8 <- brm(
+  correct ~ alpha + alpha:condition + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha,
+  prior = prior_m_difficulty,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_8"
+)
+
+bayes_factor(m_difficulty_5, m_difficulty_8)
+```
+
+Much worse.
+
+
+
+The best model fit (`m_difficulty_5`) suggests that test accuracy decreases as predicted rate of forgetting increases (i.e., as the fact gets more difficult), but that this effect is somewhat weaker in the Fact condition, and that test accuracy increases from block 1 to block 2.
+
+```{r}
+lower_alpha <- min(test_studied_alpha$alpha)
+upper_alpha <- max(test_studied_alpha$alpha)
+
+m_difficulty_prediction <- crossing(condition = as.factor(c("default", "fact")), block = as.factor(c(1, 2)), alpha = seq(lower_alpha, upper_alpha, by = 0.001))
+
+contrasts(m_difficulty_prediction$condition) <- c(-0.5, 0.5)
+contrasts(m_difficulty_prediction$block) <- c(-0.5, 0.5)
+
+pred_acc_test <- data.table(fitted(m_difficulty_5, newdata = m_difficulty_prediction, re_formula = NA))
+setnames(pred_acc_test, c("fit", "se", "lower", "upper"))
+pred_acc_test <- cbind(m_difficulty_prediction, pred_acc_test) %>%
+  mutate(condition = as.factor(str_to_title(condition)))
+```
+
+
+Make the plot shown in the paper:
+```{r}
+p <- ggplot(pred_acc_test, aes(x = alpha, y = fit, colour = condition, fill = condition)) +
+  facet_grid(~ block, labeller = label_both) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25, colour = NA) +
+  geom_line() +
+  scale_colour_manual(NULL, values = condition_colours) +
+  scale_fill_manual(NULL, values = condition_colours) +
+  scale_y_continuous(limits = c(.5, 1), labels = scales::percent_format(suffix = "\\%")) +
+  labs(x = "Predicted fact-level rate of forgetting",  y = "Test accuracy") +
+  theme_paper
+
+tikz(file = "../output/test-accuracy-rof.tex", width = 4.75, height = 2)
+p
+dev.off()
+
+p
+```
+
+
+Make a simplified version that does not include block for presentation:
+```{r}
+lower_alpha <- min(test_studied_alpha$alpha)
+upper_alpha <- max(test_studied_alpha$alpha)
+
+m_difficulty_prediction <- crossing(condition = as.factor(c("default", "fact")), alpha = seq(lower_alpha, upper_alpha, by = 0.001))
+
+contrasts(m_difficulty_prediction$condition) <- c(-0.5, 0.5)
+
+pred_acc_test_simple <- data.table(fitted(m_difficulty_8, newdata = m_difficulty_prediction, re_formula = NA))
+setnames(pred_acc_test_simple, c("fit", "se", "lower", "upper"))
+pred_acc_test_simple <- cbind(m_difficulty_prediction, pred_acc_test_simple)
+pred_acc_test_simple[, condition := str_to_title(condition)]
+
+m_difficulty_prediction <- pred_acc_test_simple %>%
+  mutate(condition_alt = ifelse(condition == "Default", "Default", "Predictive"))
+
+m_difficulty_prediction_ends <- filter(m_difficulty_prediction, alpha == max(alpha))
+
+ggplot(m_difficulty_prediction, aes(x = alpha, y = fit, colour = condition_alt, fill = condition_alt)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25, colour = NA) +
+  geom_line() +
+  scale_y_continuous(limits = c(0.5,1), labels = scales::percent_format(), sec.axis = sec_axis(~ ., breaks = m_difficulty_prediction_ends$fit, labels = m_difficulty_prediction_ends$condition_alt)) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_color_viridis_d(begin = 0.2, end = 0.8) +
+  scale_fill_viridis_d(begin = 0.2, end = 0.8) +
+  guides(colour = FALSE, fill = FALSE) +
+  labs(x = "Predicted fact-level rate of forgetting",  y = NULL, title = "Test accuracy", caption = "Plot shows fitted means with 95% CI.")
+
+ggsave(file.path("..", "output", "test_acc_diff.pdf"), device = "pdf", width = 4, height = 3)
+```
+
+
+## Observed difficulty
+
+Instead of basing the model's prediction of test accuracy on the predicted difficulty of an item, we can also use the observed difficulty: the rate of forgetting that was estimated for the item during the learning session.
+
+Note that this leaves us with a bit less data: only facts that were rehearsed at least 3 times yield a useable rate of forgetting estimate.
+
+```{r}
+observed_alpha_1 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl1_final_alpha.fst"))
+observed_alpha_2 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl2_final_alpha.fst"))
+observed_alpha <- bind_rows(observed_alpha_1, observed_alpha_2) %>%
+  anti_join(s2_exclude, by = "subject") %>%
+  droplevels()
+
+test_studied_alpha_obs <- left_join(test_studied_alpha, observed_alpha, by = c("subject", "fact_id")) %>%
+  filter(reps >= 3)
+```
+
+Fit the maximal model, but using observed alpha instead of predicted alpha:
+```{r}
+m_difficulty_obs <- brm(
+  correct ~ final_alpha * condition * block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha_obs,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_obs"
+)
+```
+
+Compare to simpler models:
+```{r}
+m_difficulty_obs_2 <- brm(
+  correct ~ final_alpha + condition * block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha_obs,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_obs_2"
+)
+
+m_difficulty_obs_3 <- brm(
+  correct ~ final_alpha * condition + block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha_obs,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_obs_3"
+)
+
+m_difficulty_obs_4 <- brm(
+  correct ~ final_alpha + condition + block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha_obs,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_obs_4"
+)
+
+m_difficulty_obs_5 <- brm(
+  correct ~ condition + block + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha_obs,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_obs_5"
+)
+
+```
+
+```{r}
+bayes_factor(m_difficulty_obs, m_difficulty_obs_2)
+bayes_factor(m_difficulty_obs, m_difficulty_obs_3)
+bayes_factor(m_difficulty_obs, m_difficulty_obs_4)
+bayes_factor(m_difficulty_obs, m_difficulty_obs_5)
+```
+
+Among these alternatives, the model without interactions or even any effect of predicted rate of forgetting is preferred.
+
+```{r}
+mcmc_plot(m_difficulty_obs_5, pars = c("alpha", "condition", "block"), type = "areas", prob = .95)
+```
+
+This means that the model predictions are horizontal lines, with a slight improvement from block 1 to block 2 and in the Fact condition over the Default condition:
+```{r}
+lower_alpha <- min(test_studied_alpha_obs$final_alpha)
+upper_alpha <- max(test_studied_alpha_obs$final_alpha)
+
+m_difficulty_obs_prediction <- crossing(condition = as.factor(c("default", "fact")), block = as.factor(c(1, 2)), final_alpha = seq(lower_alpha, upper_alpha, by = 0.001))
+
+contrasts(m_difficulty_obs_prediction$condition) <- c(-0.5, 0.5)
+contrasts(m_difficulty_obs_prediction$block) <- c(-0.5, 0.5)
+
+pred_acc_test_obs <- as.data.frame(fitted(m_difficulty_obs_5, newdata = m_difficulty_obs_prediction, re_formula = NA))
+
+m_difficulty_obs_prediction <- bind_cols(m_difficulty_obs_prediction, pred_acc_test_obs)
+
+ggplot(m_difficulty_obs_prediction, aes(x = final_alpha, y = Estimate, colour = condition, fill = condition)) +
+  facet_grid(~ block, labeller = label_both) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5), alpha = 0.25, colour = NA) +
+  geom_line() +
+  scale_y_continuous(limits = c(0.5, 1), labels = scales::percent_format()) +
+  labs(x = "Observed fact-level rate of forgetting",  y = "Test accuracy (on studied items)", caption = "Plot shows fitted means with 95% CI.")
+```
+
+Make a simplified plot (without block) for the presentation.
+```{r}
+m_difficulty_obs_6 <- brm(
+  correct ~ condition + (1 | subject),
+  family = bernoulli,
+  data = test_studied_alpha_obs,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_obs_6"
+)
+
+```
+
+```{r}
+lower_alpha <- min(test_studied_alpha_obs$final_alpha)
+upper_alpha <- max(test_studied_alpha_obs$final_alpha)
+
+m_difficulty_obs_prediction <- crossing(condition = as.factor(c("default", "fact")), final_alpha = seq(lower_alpha, upper_alpha, by = 0.001))
+
+contrasts(m_difficulty_obs_prediction$condition) <- c(-0.5, 0.5)
+
+pred_acc_test_obs_simple <- as.data.frame(fitted(m_difficulty_obs_6, newdata = m_difficulty_obs_prediction, re_formula = NA))
+
+m_difficulty_obs_prediction <- bind_cols(m_difficulty_obs_prediction, pred_acc_test_obs_simple) %>%
+  mutate(condition_alt = ifelse(condition == "default", "Default", "Predictive"))
+
+m_difficulty_prediction_obs_ends <- filter(m_difficulty_obs_prediction, final_alpha == max(final_alpha))
+
+
+ggplot(m_difficulty_obs_prediction, aes(x = final_alpha, y = Estimate, colour = condition, fill = condition)) +
+  geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5), alpha = 0.25, colour = NA) +
+  geom_line() +
+  scale_y_continuous(limits = c(0.5,1), labels = scales::percent_format(), sec.axis = sec_axis(~ ., breaks = m_difficulty_prediction_obs_ends$Estimate, labels = m_difficulty_prediction_obs_ends$condition_alt)) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_color_viridis_d(begin = 0.2, end = 0.8) +
+  scale_fill_viridis_d(begin = 0.2, end = 0.8) +
+  guides(colour = FALSE, fill = FALSE) +
+  labs(x = "Observed fact-level rate of forgetting",  y = NULL, title = "Test accuracy", caption = "Plot shows fitted means with 95% CI.")
+
+ggsave(file.path("..", "output", "test_acc_diff_obs.pdf"), device = "pdf", width = 4, height = 3)
+```
+
+
+
+# Learning accuracy as function of difficulty
+
+## Predicted difficulty
+
+Like on the test, we expect response accuracy during the learning session to be affected by the difficulty of the item, with lower accuracy on items that are predicted to be more difficult.
+Given that in the Fact condition the system is aware of item difficulty from the start, this effect should be smaller there than in the Default condition.
+
+```{r}
+s2_rl1 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl1.fst"))
+s2_rl2 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl2.fst"))
+s2_rl <- bind_rows(s2_rl1, s2_rl2) %>%
+  mutate(block = as.factor(block),
+         condition = as.factor(str_to_title(condition)))
+
+# Filter out excluded participant:
+s2_exclude <- read_fst(file.path("..", "data", "processed", "s2", "s2_exclude.fst"))
+s2_rl <- anti_join(s2_rl, s2_exclude, by = "subject") %>% droplevels()
+
+# Add predicted rate of forgetting
+s2_rl_alpha <- left_join(s2_rl, cities, by = c("fact_id", "answer"))
+```
+
+```{r}
+prior_m_difficulty_learn <- set_prior("cauchy(0, 1)", class = "b")
+
+m_difficulty_learn <- brm(
+  correct ~ alpha * condition * block + (1 | subject),
+  family = bernoulli,
+  data = s2_rl_alpha,
+  prior = prior_m_difficulty_learn,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_learn"
+)
+```
+
+
+Also fit simpler models for comparison:
+```{r}
+m_difficulty_learn_2 <- brm(
+  correct ~ alpha + condition * block + (1 | subject),
+  family = bernoulli,
+  data = s2_rl_alpha,
+  prior = prior_m_difficulty_learn,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_learn_2"
+)
+
+m_difficulty_learn_3 <- brm(
+  correct ~ alpha * condition + block + (1 | subject),
+  family = bernoulli,
+  data = s2_rl_alpha,
+  prior = prior_m_difficulty_learn,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_learn_3"
+)
+
+m_difficulty_learn_4 <- brm(
+  correct ~ alpha + condition + block + (1 | subject),
+  family = bernoulli,
+  data = s2_rl_alpha,
+  prior = prior_m_difficulty_learn,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_learn_4"
+)
+```
+
+```{r}
+bayes_factor(m_difficulty_learn, m_difficulty_learn_2)
+bayes_factor(m_difficulty_learn, m_difficulty_learn_3)
+bayes_factor(m_difficulty_learn, m_difficulty_learn_4)
+```
+
+The best model among the tested alternatives is one with an interaction between predicted rate of forgetting and condition, plus main effects for rate of forgetting, condition, and block, and random intercepts for subjects.
+
+The posteriors of this model are as follows:
+```{r}
+mcmc_plot(m_difficulty_learn_3, pars = c("alpha", "condition", "block"), type = "areas", prob = .95)
+```
+
+What if we leave out the condition main effect?
+```{r}
+m_difficulty_learn_5 <- brm(
+  correct ~ alpha + alpha:condition + block + (1 | subject),
+  family = bernoulli,
+  data = s2_rl_alpha,
+  prior = prior_m_difficulty_learn,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_learn_5"
+)
+
+bayes_factor(m_difficulty_learn_3, m_difficulty_learn_5)
+```
+
+Better!
+```{r}
+mcmc_plot(m_difficulty_learn_5, pars = c("alpha", "condition", "block"), type = "areas", prob = .95)
+```
+
+What if we leave out the main effect of alpha?
+
+```{r}
+m_difficulty_learn_6 <- brm(
+  correct ~ alpha:condition + block + (1 | subject),
+  family = bernoulli,
+  data = s2_rl_alpha,
+  prior = prior_m_difficulty_learn,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_learn_6"
+)
+
+bayes_factor(m_difficulty_learn_5, m_difficulty_learn_6)
+```
+
+Worse.
+
+What if we drop the random subject intercept?
+```{r}
+m_difficulty_learn_7 <- brm(
+  correct ~ alpha + alpha:condition + block,
+  family = bernoulli,
+  data = s2_rl_alpha,
+  prior = prior_m_difficulty_learn,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_learn_7"
+)
+
+bayes_factor(m_difficulty_learn_5, m_difficulty_learn_7)
+```
+
+Much worse.
+
+What if we leave out the main effect of block?
+```{r}
+m_difficulty_learn_8 <- brm(
+  correct ~ alpha + alpha:condition + (1 | subject),
+  family = bernoulli,
+  data = s2_rl_alpha,
+  prior = prior_m_difficulty_learn,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_difficulty_learn_8"
+)
+
+bayes_factor(m_difficulty_learn_5, m_difficulty_learn_8)
+```
+
+Much worse.
+
+
+
+The best model fit (`m_difficulty_learn_5`) has the same predictor structure as the one for test accuracy. It suggests that response accuracy during the learning session decreases as predicted rate of forgetting increases (i.e., as the fact gets more difficult), but that this effect is somewhat weaker in the Fact condition, and that learning accuracy increases from block 1 to block 2.
+
+```{r}
+lower_alpha <- min(s2_rl_alpha$alpha)
+upper_alpha <- max(s2_rl_alpha$alpha)
+
+m_difficulty_learn_prediction <- crossing(condition = as.factor(c("Default", "Fact")), block = as.factor(c(1, 2)), alpha = seq(lower_alpha, upper_alpha, by = 0.001))
+
+contrasts(m_difficulty_learn_prediction$condition) <- c(-0.5, 0.5)
+contrasts(m_difficulty_learn_prediction$block) <- c(-0.5, 0.5)
+
+pred_acc_learn <- data.table(fitted(m_difficulty_learn_5, newdata = m_difficulty_learn_prediction, re_formula = NA))
+setnames(pred_acc_learn, c("fit", "se", "lower", "upper"))
+pred_acc_learn <- cbind(m_difficulty_learn_prediction, pred_acc_learn)
+```
+
+
+Make the plot shown in the paper:
+```{r}
+p <- ggplot(pred_acc_learn, aes(x = alpha, y = fit, colour = condition, fill = condition)) +
+  facet_grid(~ block, labeller = label_both) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25, colour = NA) +
+  geom_line() +
+  scale_colour_manual(NULL, values = condition_colours) +
+  scale_fill_manual(NULL, values = condition_colours) +
+  scale_y_continuous(limits = c(.5, 1), labels = scales::percent_format(suffix = "\\%")) +
+  labs(x = "Predicted fact-level rate of forgetting",  y = "Learning accuracy") +
+  theme_paper
+
+tikz(file = "../output/learning-accuracy-rof.tex", width = 4.75, height = 2)
+p
+dev.off()
+
+p
+```
+
+Also make a simplified, combined plot for in the paper:
+```{r}
+lower_alpha <- min(s2_rl_alpha$alpha)
+upper_alpha <- max(s2_rl_alpha$alpha)
+
+m_difficulty_learn_prediction <- crossing(condition = as.factor(c("Default", "Fact")), alpha = seq(lower_alpha, upper_alpha, by = 0.001))
+
+contrasts(m_difficulty_learn_prediction$condition) <- c(-0.5, 0.5)
+
+pred_acc_learn_simple <- data.table(fitted(m_difficulty_learn_8, newdata = m_difficulty_learn_prediction, re_formula = NA))
+setnames(pred_acc_learn_simple, c("fit", "se", "lower", "upper"))
+pred_acc_learn_simple <- cbind(m_difficulty_learn_prediction, pred_acc_learn_simple)
+```
+
+```{r}
+pred_acc_learn_simple[, stage := "Learning session"]
+pred_acc_test_simple[, stage := "Test"]
+
+pred_acc_combi_simple <- rbind(pred_acc_learn_simple, pred_acc_test_simple)
+```
+
+```{r}
+test_acc_avg <- test_studied_alpha %>%
+  mutate(condition = as.factor(str_to_title(condition))) %>%
+  group_by(condition, fact_id, alpha) %>%
+  summarise(accuracy = mean(correct),
+            accuracy_se = sd(correct) / sqrt(n())) %>%
+  mutate(stage = "Test")
+
+learning_acc_avg <- s2_rl_alpha %>%
+  group_by(condition, fact_id, subject) %>%
+  summarise(accuracy_subj = mean(correct)) %>%
+  group_by(condition, fact_id) %>%
+  summarise(accuracy = mean(accuracy_subj),
+            accuracy_se = sd(accuracy_subj) / sqrt(n())) %>%
+  left_join(cities, by = "fact_id") %>%
+  select(-answer) %>%
+  mutate(stage = "Learning session")
+
+acc_avg <- bind_rows(test_acc_avg, learning_acc_avg)
+```
+
+
+```{r}
+p <- ggplot(data = pred_acc_combi_simple, aes(x = alpha, y = fit, colour = condition, fill = condition)) +
+  facet_grid(~ stage) +
+  geom_linerange(data = acc_avg, aes(y = NULL, ymin = accuracy - accuracy_se, ymax = accuracy + accuracy_se), alpha = .15) +
+  geom_point(data = acc_avg, aes(y = accuracy), size = .2, alpha = .5) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25, colour = NA) +
+  geom_line() +
+  scale_colour_manual(NULL, values = condition_colours) +
+  scale_fill_manual(NULL, values = condition_colours) +
+  # scale_y_continuous(limits = c(.5, 1), labels = scales::percent_format(suffix = "\\%")) +
+  scale_y_continuous(labels = scales::percent_format(suffix = "\\%")) +
+  # guides(colour = guide_legend(reverse = TRUE),
+  #        fill = guide_legend(reverse = TRUE)) +
+  labs(x = "Predicted fact-level rate of forgetting",  y = "Response accuracy") +
+  theme_paper
+
+tikz(file = "../output/combi-accuracy-rof.tex", width = 4.75, height = 2)
+p
+dev.off()
+
+p
+```
+
+```{r}
+p <- ggplot(data = pred_acc_combi_simple, aes(x = alpha, y = fit, colour = condition, fill = condition)) +
+  facet_grid(~ stage) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25, colour = NA) +
+  geom_line() +
+  scale_colour_manual(NULL, values = condition_colours) +
+  scale_fill_manual(NULL, values = condition_colours) +
+  scale_y_continuous(limits = c(.5, 1), labels = scales::percent_format(suffix = "\\%")) +
+  # guides(colour = guide_legend(reverse = TRUE),
+  #        fill = guide_legend(reverse = TRUE)) +
+  labs(x = "Predicted fact-level rate of forgetting",  y = "Response accuracy") +
+  theme_paper
+
+tikz(file = "../output/combi-accuracy-rof-nodata.tex", width = 4.75, height = 2)
+p
+dev.off()
+
+p
+```
+
+
+
+# Repetitions as a function of difficulty
+
+We expect items that are predicted to be more difficult to also be repeated more during the learning session.
+This effect should be stronger in the Fact condition, where the algorithm starts out knowing that a fact is difficult and should be repeated often, than in the Default condition, where all facts are initially implicitly assumed to require the same number of repetitions.
+```{r}
+presentations <- s2_rl_alpha %>%
+  group_by(condition, subject, fact_id, alpha) %>%
+  summarise(reps = n())
+
+presentations_mean <- presentations %>%
+  group_by(condition, fact_id, alpha) %>%
+  summarise(reps_mean = mean(reps),
+            reps_se = sd(reps) / sqrt(n()))
+```
+
+Mean number of presentations per fact:
+```{r}
+ggplot(presentations_mean, aes(x = alpha, y = reps_mean, colour = condition)) +
+  geom_errorbar(aes(ymin = reps_mean - reps_se, ymax = reps_mean + reps_se)) +
+  geom_point() +
+  scale_colour_manual(NULL, values = condition_colours) +
+  theme_paper
+```
+
+Fit a regression model to visualise this in a cleaner way.
+The dependent variable is the number of presentations (a count variable), so a Poisson distribution makes sense.
+```{r}
+hist(presentations$reps)
+```
+
+
+```{r}
+prior_m_presentations <- set_prior("cauchy(0, 1)", class = "b")
+
+m_presentations <- brm(
+  reps ~ alpha * condition + (1 | subject),
+  family = poisson,
+  data = presentations,
+  prior = prior_m_presentations,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_presentations"
+)
+
+```
+
+```{r}
+m_presentations_2 <- brm(
+  reps ~ alpha + condition + (1 | subject),
+  family = poisson,
+  data = presentations,
+  prior = prior_m_presentations,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_presentations_2"
+)
+
+m_presentations_3 <- brm(
+  reps ~ alpha + alpha:condition + (1 | subject),
+  family = poisson,
+  data = presentations,
+  prior = prior_m_presentations,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_presentations_3"
+)
+
+m_presentations_3 <- brm(
+  reps ~ alpha:condition + condition + (1 | subject),
+  family = poisson,
+  data = presentations,
+  prior = prior_m_presentations,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_presentations_3"
+)
+
+m_presentations_4 <- brm(
+  reps ~ alpha + (1 | subject),
+  family = poisson,
+  data = presentations,
+  prior = prior_m_presentations,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_presentations_4"
+)
+
+m_presentations_5 <- brm(
+  reps ~ condition + (1 | subject),
+  family = poisson,
+  data = presentations,
+  prior = prior_m_presentations,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_presentations_5"
+)
+m_presentations_6 <- brm(
+  reps ~ 1 + (1 | subject),
+  family = poisson,
+  data = presentations,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_presentations_6"
+)
+```
+The full model is clearly the best:
+```{r}
+bayes_factor(m_presentations, m_presentations_2)
+bayes_factor(m_presentations, m_presentations_3)
+bayes_factor(m_presentations, m_presentations_4)
+bayes_factor(m_presentations, m_presentations_5)
+bayes_factor(m_presentations, m_presentations_6)
+```
+
+
+
+```{r, fig.width = 12}
+mcmc_plot(m_presentations, pars = c("alpha", "condition"), type = "trace")
+
+mcmc_plot(m_presentations, pars = c("alpha", "condition"), type = "acf_bar")
+```
+
+```{r}
+summary(m_presentations)
+```
+
+Visualise the model's population-level estimates, along with their 95% credible intervals:
+```{r}
+mcmc_plot(m_presentations, pars = c("alpha", "condition"), type = "areas", prob = .95)
+```
+
+The model makes the following predictions, based on its fixed effects:
+```{r}
+lower_alpha <- min(presentations$alpha)
+upper_alpha <- max(presentations$alpha)
+
+m_presentations_prediction <- crossing(condition = as.factor(c("Default", "Fact")), alpha = seq(lower_alpha, upper_alpha, by = 0.001))
+
+pred_acc <- data.table(fitted(m_presentations, newdata = m_presentations_prediction, re_formula = NA))
+setnames(pred_acc, c("fit", "se", "lower", "upper"))
+pred_acc <- cbind(m_presentations_prediction, pred_acc)
+```
+
+
+
+
+Make the plot shown in the paper:
+```{r}
+p <- ggplot(pred_acc, aes(x = alpha, y = fit, colour = condition, fill = condition)) +
+  geom_errorbar(data = presentations_mean, aes(y = reps_mean, ymin = reps_mean - reps_se, ymax = reps_mean + reps_se), alpha = .15) +
+  geom_point(data = presentations_mean, aes(y = reps_mean), alpha = .5) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.25, colour = NA) +
+  geom_line() +
+  scale_colour_manual(NULL, values = condition_colours) +
+  scale_fill_manual(NULL, values = condition_colours) +
+  scale_y_continuous(limits = c(2, 13.5), breaks = c(2, 4, 6, 8, 10, 12)) +
+  labs(x = "Predicted fact-level rate of forgetting",  y = "Number of presentations") +
+  theme_paper
+
+tikz(file = "../output/presentation-count-rof.tex", width = 4.75, height = 2)
+p
+dev.off()
+
+p
+```
+
+
+
+
+
+
+
+
+
+
+
+
+# Response accuracy during learning
+
+Like we saw in Experiment 1, response accuracy during the learning session was affected by the prediction type.
+```{r}
+s2_rl1 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl1.fst"))
+s2_rl2 <- read_fst(file.path("..", "data", "processed", "s2", "s2_rl2.fst"))
+s2_rl <- bind_rows(s2_rl1, s2_rl2) %>%
+  mutate(block = as.factor(block),
+         condition = as.factor(str_to_title(condition)))
+
+# Filter out excluded participant:
+s2_exclude <- read_fst(file.path("..", "data", "processed", "s2", "s2_exclude.fst"))
+s2_rl <- anti_join(s2_rl, s2_exclude, by = "subject") %>% droplevels()
+```
+
+```{r}
+rl_acc <- s2_rl %>%
+  group_by(subject, block, condition) %>%
+  summarise(p_corr = mean(correct))
+```
+
+```{r}
+p <- rl_acc %>%
+  ggplot(aes(y = p_corr, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_y_continuous(labels = scales::percent_format(suffix = "\\%")) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Response accuracy") +
+  theme_paper
+
+tikz(file = "../output/learning-accuracy.tex", width = 4.75/2, height = 2)
+p
+dev.off()
+
+p
+```
+
+
+Fit a Bayesian logistic mixed-effects model:
+```{r}
+prior_m3 <- set_prior("cauchy(0, 1)", class = "b")
+
+m3 <- brm(
+  correct ~ condition + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = s2_rl,
+  prior = prior_m3,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m3"
+)
+```
+
+```{r, fig.width = 12}
+mcmc_plot(m3, pars = c("condition", "block"), type = "trace")
+
+mcmc_plot(m3, pars = c("condition", "block"), type = "acf_bar")
+```
+
+```{r}
+summary(m3)
+```
+
+Visualise the model's population-level estimates, along with their 95% credible intervals:
+```{r}
+mcmc_plot(m3, pars = c("condition", "block"), type = "areas", prob = .95)
+```
+
+The model makes the following predictions, based on its fixed effects.
+
+```{r}
+# Get fitted values
+new_data <- crossing(condition = levels(s2_rl$condition), block = levels(s2_rl$block))
+fit_m3 <- data.table(fitted(m3,
+                            newdata = new_data,
+                            re_formula = NA,
+                            summary = FALSE))
+setnames(fit_m3, as.character(interaction(new_data$condition, new_data$block)))
+
+fit_m3_summary <- data.table(fitted(m3,
+                                    newdata = new_data,
+                                    re_formula = NA))
+setnames(fit_m3_summary, c("fit", "se", "lower", "upper"))
+fit_m3_summary <- cbind(new_data, fit_m3_summary)
+```
+
+
+Overall response accuracy (across blocks and conditions):
+```{r}
+quantile((fit_m3$Default.1 + fit_m3$Default.2 + fit_m3$Fact.1 + fit_m3$Fact.2)/4,
+         probs = c(.5, .025, .975))
+```
+
+Difference in response accuracy between Fact condition and Default condition (across blocks): 
+```{r}
+fact_vs_default <- (fit_m3$Fact.1 + fit_m3$Fact.2)/2 - (fit_m3$Default.1 + fit_m3$Default.2)/2
+quantile(fact_vs_default, probs = c(.5, .025, .975))
+```
+
+Difference in response accuracy between block 2 and block 1 (across conditions):
+```{r}
+block2_vs_block1 <- (fit_m3$Default.2 + fit_m3$Fact.2)/2 - (fit_m3$Default.1 + fit_m3$Fact.1)/2
+quantile(block2_vs_block1, probs = c(.5, .025, .975))
+```
+
+
+
+
+#  Test score
+
+The plot below shows the test scores on all 30 items for each block and condition.
+It looks like the Fact condition may outperform the Default condition in the first block, but not in the second block.
+Is this indeed the case?
+
+```{r}
+test_scores <- test %>%
+  group_by(subject, block, condition) %>%
+  summarise(score = sum(correct)) %>%
+    mutate(condition_order = case_when(
+    block == 1 && condition == "default" ~ "DefaultFact",
+    block == 2 && condition == "fact" ~ "DefaultFact",
+    block == 1 && condition == "fact" ~ "FactDefault",
+    block == 2 && condition == "default" ~ "FactDefault"
+  )) %>%
+  ungroup() %>%
+  mutate(condition_order = as.factor(condition_order))
+```
+
+
+```{r}
+ggplot(test_scores, aes(x = block, y = score)) +
+  facet_grid(~ condition_order) +
+  geom_violin() +
+  geom_boxplot(width = 0.25) +
+  geom_jitter(height = 0, width = 0.2, colour = "grey50") +
+  scale_y_continuous(limits = c(0, 30)) +
+  labs(title = "Test score (all 30 items)")
+```
+
+Make the simplified plot shown in the paper:
+```{r}
+p <- test_scores %>%
+  mutate(condition = str_to_title(condition)) %>%
+  ggplot(aes(y = score, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_y_continuous(limits = c(0, 30)) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Test score") +
+  theme_paper
+
+tikz(file = "../output/test-score.tex", width = 4.75/2, height = 2)
+p
+dev.off()
+
+p
+```
+
+
+If using fact-level predictions improves the learning and subsequent test performance, the test score in Fact blocks should be higher than the test score in Default blocks, controlling for block order.
+
+```{r}
+test_scores_diff <- test_scores %>%
+  group_by(subject, condition_order) %>%
+  summarise(improvement = score[condition == "fact"] - score[condition == "default"])
+```
+
+```{r}
+ggplot(test_scores_diff, aes(x = condition_order, y = improvement)) +
+  geom_violin() +
+  geom_boxplot(width = 0.2) +
+  geom_jitter(height = 0, width = 0.1) +
+  labs(x = "Condition order", y = "Score Fact - Score Default")
+```
+
+The difference in test score is always an integer, but can be smaller than zero.
+For that reason, I'm modelling the score difference using a shifted Poisson distribution:
+```{r}
+improvement_min <- min(test_scores_diff$improvement)
+test_scores_diff$improvement_shifted <- test_scores_diff$improvement - improvement_min
+
+ggplot(test_scores_diff, aes(x = condition_order, y = improvement_shifted)) +
+  geom_violin() +
+  geom_boxplot(width = 0.2) +
+  geom_jitter(height = 0, width = 0.1) +
+  labs(x = "Condition order", y = "Score Fact - Score Default (shifted)")
+
+```
+
+
+
+```{r}
+contrasts(test_scores_diff$condition_order) <- c(-0.5, 0.5)
+
+m_scores <- brm(improvement_shifted ~ condition_order,
+                family = poisson(),
+                data = test_scores_diff,
+                prior = set_prior("cauchy(0, 1)", class = "b"),
+                chains = 4,
+                iter = 10000,
+                save_all_pars = TRUE,
+                sample_prior = TRUE,
+                future = TRUE,
+                seed = 0,
+                file = "model_fits/m_scores"
+                )
+```
+
+```{r}
+summary(m_scores)
+```
+
+```{r}
+mcmc_plot(m_scores, pars = c("b_Intercept"), exact_match = TRUE, type = "areas", prob = .95, transformations = function(x) {exp(x) + improvement_min})
+```
+
+The intercept term in this model represents the estimated improvement in test score from the Default block to the Fact block, across condition orders.
+The plot above shows the estimated distribution of the improvement coefficient.
+It is quite clear that there is no improvement.
+A Savage-Dickey density ratio test shows that there is indeed some evidence against a change in test score between conditions: 
+
+```{r}
+prior_density_at_zero <- dcauchy(0, 0, 1)
+
+m_scores_posterior_samples <- exp(posterior_samples(m_scores, pars = "b_Intercept")$b_Intercept) + improvement_min
+m_scores_posterior_density_at_zero <- density_ratio(m_scores_posterior_samples, point = 0)
+
+bf_scores <- prior_density_at_zero / m_scores_posterior_density_at_zero
+1/bf_scores
+```
+
+
+```{r}
+xval <- seq(-2, 2, by = 0.01)
+plot_prior <- dcauchy(xval, location = 0, scale = 1)
+plot_posterior <- density_ratio(x = m_scores_posterior_samples, y = NULL, point = xval) # Returns the density of the posterior at each point in x
+m_scores_density <- tibble(xval = xval, Prior = plot_prior, Posterior = plot_posterior)
+
+gather(m_scores_density, -xval, key = "Type", value = "density") %>%
+  mutate(density = ifelse(density < 0, 0, density)) %>%
+  ggplot(aes(x = xval, y = density, fill = Type)) +
+  geom_area(position = "identity", colour = "black", alpha = 0.75) +
+  geom_vline(xintercept = 0, lty = 3) +
+  annotate("point", x = c(0, 0), y = c(prior_density_at_zero, m_scores_posterior_density_at_zero)) +
+  labs(x = "Estimate for coefficient 'Intercept' (transformed)", y = NULL, title = "") +
+  scale_fill_manual(values = c("#03396c", "#b3cde0"))
+```
+
+
+
+
+
+# Test accuracy on unseen items
+
+Participants could rehearse up to 30 items during each learning session.
+Regardless of the number of items they actually saw, they were tested on all 30.
+We would not expect participants to answer unseen items correctly, unless they just happen to know the location of a city.
+
+Out of a total of `r nrow(filter(test, !studied))` unstudied items across all participants and blocks, `r nrow(filter(test, !studied, correct))` were answered correctly.
+These responses are shown below.
+All of them are large cities that could reasonably be guessed based on prior knowledge.
+
+```{r}
+cities <- read_csv(file.path("..", "stimuli", "setC.csv"), col_types = cols(
+  id = col_factor(),
+  image = col_character(),
+  text = col_logical(),
+  answer = col_character()
+)) %>%
+  select(fact_id = id, answer)
+
+filter(test, !studied, correct) %>%
+  left_join(cities, by = "fact_id")
+```
+
+
+
+
+
+# Test accuracy on all items
+
+Rather than only looking at test responses on facts that were studied during the learning session, we can evaluate the evidence for an effect of condition on test accuracy on *all* 30 items in the stimulus set.
+Based on the observation that unseen items are almost universally answered incorrectly, we would expect to find a similar but much diluted effect of condition.
+
+The plot below shows test accuracy on all 30 items.
+As expected, the distributions look more or less the same but shifted downward.
+```{r}
+test$studied <- ifelse(is.na(test$studied), FALSE, test$studied)
+
+test_acc <- test %>%
+  group_by(subject, block, condition) %>%
+  summarise(p_corr = mean(correct)) %>%
+    mutate(condition_order = case_when(
+    block == 1 && condition == "default" ~ "Default-Fact",
+    block == 2 && condition == "fact" ~ "Default-Fact",
+    block == 1 && condition == "fact" ~ "Fact-Default",
+    block == 2 && condition == "default" ~ "Fact-Default"
+  ))
+
+ggplot(test_acc, aes(x = block, y = p_corr)) +
+  facet_grid(~ condition_order) +
+  geom_violin() +
+  geom_boxplot(width = 0.2) +
+  geom_jitter(width = 0.2, height = 0, colour = "grey25") +
+  labs(x = "Block", y = "Accuracy")
+```
+
+Fit the same model as before, but now including all items (note that this is obviously an inappropriate model, since the largest source of variance---whether or not the item was studied---is not included):
+```{r}
+contrasts(test$condition) <- c(-0.5, 0.5)
+contrasts(test$condition)
+
+contrasts(test$block) <- c(-0.5, 0.5)
+contrasts(test$block)
+```
+
+```{r}
+m1_all <- brm(
+  correct ~ condition + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_all"
+)
+```
+
+```{r, fig.width = 12}
+mcmc_plot(m1_all, pars = c("condition", "block"), type = "trace")
+
+mcmc_plot(m1_all, pars = c("condition", "block"), type = "acf_bar")
+```
+
+Model summary:
+```{r}
+summary(m1_all)
+```
+
+Visualise the model's population-level estimates, along with their 95% credible intervals:
+```{r}
+mcmc_plot(m1_all, pars = c("condition", "block"), type = "areas", prob = .95)
+```
+
+Clearly, the evidence for an effect of condition basically disappears when the unstudied items are included in the model.
+The estimated distribution for the condition coefficient overlaps with zero.
+
+
+```{r}
+prior_density_at_zero <- dcauchy(0, 0, 1)
+m1_all_posterior_samples <- posterior_samples(m1_all, pars = "b_condition1")$b_condition1
+m1_all_posterior_density_at_zero <- density_ratio(m1_all_posterior_samples, point = 0)
+
+
+xval <- seq(-2, 2, by = 0.01)
+plot_prior <- dcauchy(xval, location = 0, scale = 1)
+m1_all_plot_posterior <- density_ratio(x = m1_all_posterior_samples, y = NULL, point = xval) # Returns the density of the posterior at each point in x
+m1_all_density <- tibble(xval = xval, Prior = plot_prior, Posterior = m1_all_plot_posterior)
+```
+
+```{r}
+gather(m1_all_density, -xval, key = "Type", value = "density") %>%
+  mutate(density = ifelse(density < 0, 0, density)) %>%
+  ggplot(aes(x = xval, y = density, fill = Type)) +
+  geom_area(position = "identity", colour = "black", alpha = 0.75) +
+  geom_vline(xintercept = 0, lty = 3) +
+  annotate("point", x = c(0, 0), y = c(prior_density_at_zero, m1_all_posterior_density_at_zero)) +
+  labs(x = "Estimate for coefficient 'condition'", y = NULL, title = "") +
+  scale_fill_manual(values = c("#03396c", "#b3cde0"))
+```
+
+The evidence in favour of a non-zero coefficient for condition is evaluated by means of the Savage-Dickey density ratio: the ratio between the prior and posterior density at $\beta_{condition} = 0$ (the two points on the dotted line in the plot above).
+```{r}
+BF_condition_all <- prior_density_at_zero / m1_all_posterior_density_at_zero
+
+BF_condition_all
+```
+
+The evidence in favour of an effect of condition is $BF_{10}$ = `r format(BF_condition_all)`.
+Put differently, the evidence *against* an effect of condition is $BF_{01}$ =  `r format(1/BF_condition_all)`.
+
+(This means that a stopping rule based on this test, rather than the test on unstudied items only, would also have been satisfied, albeit with the evidence in favour of the null.)
+
+
+## Add studied/not studied predictor
+
+If we include items that were not studied during the learning session, the model we used is really no longer a reasonable model, since it does not account for probably the largest source of variance: whether or not the test item was studied beforehand.
+
+The following model does include this predictor, as well as an interaction with condition.
+
+
+```{r}
+m1_all2 <- brm(
+  correct ~ studied * condition + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_all2"
+)
+```
+
+Compared to the model without the `studied` predictor, this model is immeasurably better:
+```{r}
+bayes_factor(m1_all2, m1_all)
+```
+
+Also compare to simpler versions of the model with a `studied` predictor:
+```{r}
+m1_all3 <- brm(
+  correct ~ studied : condition + condition + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_all3"
+)
+
+
+bayes_factor(m1_all3, m1_all2)
+```
+
+Worse.
+
+```{r}
+m1_all4 <- brm(
+  correct ~ studied + studied : condition  + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_all4"
+)
+
+bayes_factor(m1_all4, m1_all2)
+```
+
+Slightly better.
+
+```{r}
+m1_all5 <- brm(
+  correct ~ studied : condition  + block + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_all5"
+)
+
+bayes_factor(m1_all5, m1_all4)
+```
+
+Worse.
+
+So far, the best model is `m1_all4`.
+
+
+```{r, fig.width = 12}
+mcmc_plot(m1_all4, pars = c("studied", "condition", "block"), type = "trace")
+
+mcmc_plot(m1_all4, pars = c("studied", "condition", "block"), type = "acf_bar")
+```
+
+Model summary:
+```{r}
+summary(m1_all4)
+```
+
+Visualise the model's population-level estimates (on logit scale), along with their 95% credible intervals:
+```{r}
+mcmc_plot(m1_all4, pars = c("studied", "condition", "block"), type = "areas", prob = .95)
+```
+
+Interpretation:
+
+- Test accuracy increases strongly if an item was studied during the preceding learning session.
+- Given that an item was studied, test accuracy is higher if the item was studied in the Fact condition than if it was studied in the Default condition.
+- Test accuracy is higher in the second block.
+
+```{r}
+prior_density_at_zero <- dcauchy(0, 0, 1)
+m1_all4_posterior_samples <- posterior_samples(m1_all4, pars = "b_studiedTRUE:condition1")$`b_studiedTRUE:condition1`
+m1_all4_posterior_density_at_zero <- density_ratio(m1_all4_posterior_samples, point = 0)
+
+
+xval <- seq(-2, 2, by = 0.01)
+plot_prior <- dcauchy(xval, location = 0, scale = 1)
+m1_all4_plot_posterior <- density_ratio(x = m1_all4_posterior_samples, y = NULL, point = xval) # Returns the density of the posterior at each point in x
+m1_all4_density <- tibble(xval = xval, Prior = plot_prior, Posterior = m1_all4_plot_posterior)
+```
+
+```{r}
+gather(m1_all4_density, -xval, key = "Type", value = "density") %>%
+  mutate(density = ifelse(density < 0, 0, density)) %>%
+  ggplot(aes(x = xval, y = density, fill = Type)) +
+  geom_area(position = "identity", colour = "black", alpha = 0.75) +
+  geom_vline(xintercept = 0, lty = 3) +
+  annotate("point", x = c(0, 0), y = c(prior_density_at_zero, m1_all4_posterior_density_at_zero)) +
+  labs(x = "Estimate for coefficient 'condition'", y = NULL, title = "") +
+  scale_fill_manual(values = c("#03396c", "#b3cde0"))
+```
+
+The evidence in favour of a non-zero coefficient for condition is evaluated by means of the Savage-Dickey density ratio: the ratio between the prior and posterior density at $\beta_{condition} = 0$ (the two points on the dotted line in the plot above).
+```{r}
+BF_condition_all4 <- prior_density_at_zero / m1_all4_posterior_density_at_zero
+
+BF_condition_all4
+```
+
+The evidence in favour of an effect of condition is $BF_{10}$ = `r format(BF_condition_all4)`.
+
+Using this model, we can predict participants' test scores.
+Comparing them to the observed test scores confirms that the model is quite good at capturing the data.
+```{r}
+test_pred <- bind_cols(test, as.data.frame(fitted(m1_all4)))
+```
+
+```{r}
+test_scores_pred <- test_pred %>%
+  group_by(subject, block, condition) %>%
+  summarise(score = sum(correct),
+            score_pred = sum(Estimate)) %>%
+  mutate(condition_order = case_when(
+    block == 1 && condition == "default" ~ "DefaultFact",
+    block == 2 && condition == "fact" ~ "DefaultFact",
+    block == 1 && condition == "fact" ~ "FactDefault",
+    block == 2 && condition == "default" ~ "FactDefault"
+  )) %>%
+  ungroup() %>%
+  mutate(condition_order = as.factor(condition_order)) %>%
+  gather("type", "value", score, score_pred) %>%
+  mutate(type = ifelse(type == "score", "observed", "predicted"))
+
+
+ggplot(test_scores_pred, aes(x = block, y = value, colour = type)) +
+  facet_grid(~ condition_order) +
+  geom_boxplot(position = position_dodge(), fill = NA, size = 0.4) +
+  geom_point(position = position_jitterdodge(0.2)) +
+  labs(x = "Block", y = "Test score", colour = NULL)
+```
+
+
+
+
+
+# What if you only learn one block?
+
+
+```{r}
+test_studied_block1 <- filter(test_studied, block == 1)
+
+m1_block1 <- brm(
+  correct ~ condition + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test_studied_block1,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m1_block1"
+)
+```
+
+The effect of condition is even stronger if we only look at block 1:
+```{r}
+summary(m1_block1)
+```
+
+```{r}
+mcmc_plot(m1_block1, pars = c("condition"), type = "areas", prob = .95)
+```
+
+
+# Session info
+```{r}
+sessionInfo()
+```

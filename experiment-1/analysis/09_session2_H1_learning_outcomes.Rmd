@@ -1,0 +1,577 @@
+---
+title: "Test of H1: Using predicted rate of forgetting improves the learning outcome"
+author: "Maarten van der Velde"
+date: "Last updated: `r Sys.Date()`"
+output:
+  html_notebook:
+    smart: no
+    toc: yes
+    toc_float: yes
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+---
+
+# Overview
+
+This notebook contains the analysis of Hypothesis 1, as preregistered at https://osf.io/vwg6u/:
+
+> A learning session in which the initial rate-of-forgetting estimate for each fact is set to a value that was predicted using (i.) the learner's previously measured rates of forgetting on other facts, (ii.) the rates of forgetting of other learners for this fact, (iii.) both the learner's previously measured rates of forgetting on other facts *and* the rates of forgetting of other learners for this fact, or (iv.) the domain-level mean rate of forgetting across all learners and facts, will have a better learning outcome, in terms of the number of unique items studied during the session and in terms of the score on a subsequent test of the studied material, than a learning session in which the initial rate-of-forgetting estimate for each fact is set to a fixed default value of 0.3 (which is the standard value used in earlier work (e.g., Sense et al., 2016)).
+
+
+
+# Setup
+
+## Load packages
+```{r}
+library(BayesFactor)
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(purrr)
+library(readr)
+library(stringr)
+library(tidyr)
+library(extrafont)
+library(wesanderson)
+library(tikzDevice)
+library(fst)
+
+# font_import() # Run once to populate the R font database with the fonts on the system
+loadfonts(quiet = TRUE)
+
+theme_poster <- theme_light(base_size = 14) +
+            theme(text = element_text(family = 'Merriweather Sans'),
+                  strip.text = element_text(colour = "black")) 
+
+theme_paper <- theme_bw() + 
+  theme(axis.text = element_text(colour = "black"))
+
+condition_colours <- wes_palette("Darjeeling1", n = 5)
+condition_colours[c(2, 4, 5)] <- condition_colours[c(4, 5, 2)]
+
+knitr::opts_chunk$set(fig.width=16, fig.height=16)
+
+set.seed(0)
+```
+## Load data
+```{r}
+lab_2_rl_1 <- read.fst(file.path("..", "data", "processed", "lab", "session2", "session2_rl1_lab.fst"))
+lab_2_rl_2 <- read.fst(file.path("..", "data", "processed", "lab", "session2", "session2_rl2_lab.fst"))
+lab_2_test_1 <- read.fst(file.path("..", "data", "processed", "lab", "session2", "session2_test1_lab.fst"))
+lab_2_test_2 <- read.fst(file.path("..", "data", "processed", "lab", "session2", "session2_test2_lab.fst"))
+
+mturk_2_rl_1 <- read.fst(file.path("..", "data", "processed", "mturk", "session2", "session2_rl1_mturk.fst"))
+mturk_2_rl_2 <- read.fst(file.path("..", "data", "processed", "mturk", "session2", "session2_rl2_mturk.fst"))
+mturk_2_test_1 <- read.fst(file.path("..", "data", "processed", "mturk", "session2", "session2_test1_mturk.fst"))
+mturk_2_test_2 <- read.fst(file.path("..", "data", "processed", "mturk", "session2", "session2_test2_mturk.fst"))
+
+fix_condition_labels <- function(x) {
+  rowwise(x) %>%
+  mutate(condition = str_replace(condition, "-and-", " & ") %>%
+           str_replace("student", "learner") %>%
+           str_to_title()) %>%
+  ungroup() %>%
+  mutate(condition = fct_relevel(condition, "Fact & Learner", after = Inf)) # Move F&L level to the end
+}
+
+lab_2_rl_1 <- fix_condition_labels(lab_2_rl_1)
+lab_2_rl_2 <- fix_condition_labels(lab_2_rl_2)
+
+lab_2_test_1 <- fix_condition_labels(lab_2_test_1)
+lab_2_test_2 <- fix_condition_labels(lab_2_test_2)
+
+mturk_2_rl_1 <- fix_condition_labels(mturk_2_rl_1)
+mturk_2_rl_2 <- fix_condition_labels(mturk_2_rl_2)
+
+mturk_2_test_1 <- fix_condition_labels(mturk_2_test_1)
+mturk_2_test_2 <- fix_condition_labels(mturk_2_test_2)
+
+block2 <- bind_rows(mutate(lab_2_rl_2, dataset = "Lab"),
+                      mutate(mturk_2_rl_2, dataset = "MTurk")) %>%
+  select(dataset, subject, condition, rt, start_time, fact_id, response, answer, correct, study) %>%
+  mutate(date = as.Date.POSIXct(start_time/1000))
+
+test2 <- bind_rows(mutate(lab_2_test_2, dataset = "Lab"),
+                   mutate(mturk_2_test_2, dataset = "MTurk")) %>%
+    select(dataset, subject, condition, rt, start_time, fact_id, response, answer, correct) %>%
+    mutate(date = as.Date.POSIXct(start_time/1000))
+```
+
+## Subset data
+The preregistration specified 22 April 2019 as the cutoff date for data collection.
+We reached the minimum of 25 participants per condition in the lab sample before this date, but not in the Mechanical Turk sample.
+For that reason data collection on MTurk continued until there were at least 25 participants per condition (14 May 2019) and was stopped only then.
+The analysis reported in the paper is based on the full dataset, but this notebook also reports the same analysis done only on the data from before the cutoff date. 
+
+```{r}
+block2_full <- block2 
+
+block2_cutoff <- block2 %>%
+  filter(date <= as.Date("2019-04-22"))
+
+test2_full <- test2
+
+test2_cutoff <- test2 %>%
+  filter(date <= as.Date("2019-04-22"))
+
+subjects_cutoff <- distinct(block2_cutoff, subject)
+write_csv(subjects_cutoff, file.path("..", "data", "processed", "subjects_before_cutoff.csv"))
+```
+
+
+
+# Summary statistics of the sample
+
+## Number of participants
+
+### Full dataset
+```{r}
+block2_full %>%
+  distinct(dataset, subject, condition) %>%
+  count(dataset, condition) %>%
+  spread(dataset, n)
+```
+
+### Dataset with cutoff at 22 April 2019
+```{r}
+block2_cutoff %>%
+  distinct(dataset, subject, condition) %>%
+  count(dataset, condition) %>%
+  spread(dataset, n)
+```
+
+
+---
+
+
+# Number of unique items studied
+
+Is there an effect of condition on the number of unique items that a participant encountered in the second block of session 2?
+
+## Cutoff dataset
+
+```{r}
+block2_cutoff_stats <- block2_cutoff %>%
+  group_by(dataset, condition, subject) %>%
+  summarise(unique_items = length(unique(fact_id)),
+            trials = n(),
+            accuracy = mean(correct)) %>%
+  ungroup() %>%
+  mutate_if(~ is_character(.), as.factor)
+
+block2_full_stats <- block2_full %>%
+  group_by(dataset, condition, subject) %>%
+  summarise(unique_items = length(unique(fact_id)),
+            trials = n(),
+            accuracy = mean(correct)) %>%
+  ungroup() %>%
+  mutate_if(~ is_character(.), as.factor)
+
+block2_cutoff_stats %>%
+  select(dataset, condition, subject, unique_items)
+```
+
+
+We test the effect of condition on the number of unique items with a Bayesian ANOVA, which includes an interaction with dataset to address H5 (no effect of population):
+```{r}
+bf_items <- anovaBF(
+  unique_items ~ condition * dataset,
+  data = block2_cutoff_stats,
+  progress = FALSE
+)
+```
+
+Evidence for this model over a null model (no effect of condition or dataset):
+```{r}
+bf_items
+```
+
+Evidence for a null model (no effect of condition or dataset):
+```{r}
+1/bf_items
+```
+
+```{r}
+plot(bf_items)
+```
+
+
+There is evidence against an effect of dataset, meaning that the two samples do not need to be analysed separately.
+In addition, the model shows evidence against an effect of condition, which means that there is no difference between conditions in the number of unique items.
+
+**Conclusion: no change in the number of unique items studied.**
+
+## Full dataset
+Repeating this test on the full dataset yields the same conclusions:
+```{r}
+bf_items_full <- anovaBF(
+  unique_items ~ condition * dataset,
+  data = block2_full_stats,
+  progress = FALSE
+)
+```
+Evidence for this model over a null model (no effect of condition or dataset):
+```{r}
+bf_items_full
+```
+
+Evidence for a null model (no effect of condition or dataset):
+```{r}
+1/bf_items_full
+```
+
+```{r}
+plot(bf_items_full)
+```
+
+**Conclusion: no change in the number of unique items studied.**
+
+Make the plot shown on the poster (lab data only):
+```{r}
+block2_full_stats %>%
+  filter(dataset == "Lab") %>%
+  ggplot(aes(y = unique_items, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Facts studied") +
+  theme_poster
+
+ggsave("../output/number-of-facts-session2-full-simple.pdf", device = "pdf", width = 5.75, height = 2)
+```
+
+Make the plot shown in the paper (both populations):
+```{r}
+block2_full_stats_tex <- block2_full_stats
+levels(block2_full_stats_tex$condition)[5] <- "Fact \\& Learner"
+
+p <- block2_full_stats_tex %>%
+  ggplot(aes(y = unique_items, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Facts studied") +
+  theme_paper
+
+tikz(file = "../output/number-of-facts-session2-full-simple.tex", width = 4.75, height = 2)
+p
+dev.off()
+
+p
+```
+
+
+# Test score
+
+After a five-minute break, participants were tested on the items that they had studied (but not on those they had not seen).
+This means that the maximum test score depends on how many items they studied (at most 30).
+
+## Cutoff dataset
+
+```{r}
+test2_cutoff_stats <- test2_cutoff %>%
+  group_by(dataset, condition, subject) %>%
+  summarise(n_correct = sum(correct),
+            n_items = n(),
+            accuracy = n_correct / n_items) %>%
+  ungroup() %>%
+  mutate_if(~ is_character(.), as.factor)
+
+test2_full_stats <- test2_full %>%
+  group_by(dataset, condition, subject) %>%
+  summarise(n_correct = sum(correct),
+            n_items = n(),
+            accuracy = n_correct / n_items) %>%
+  ungroup() %>%
+  mutate_if(~ is_character(.), as.factor)
+
+
+test2_cutoff_stats %>%
+  select(dataset, condition, subject, n_correct)
+```
+
+We test the effect of condition on the test score with a Bayesian ANOVA, which includes an interaction with dataset to address H5 (no effect of population):
+```{r}
+bf_testscore <- anovaBF(
+  n_correct ~ condition * dataset,
+  data = test2_cutoff_stats,
+  progress = FALSE
+)
+```
+
+Evidence for this model over a null model (no effect of condition or dataset):
+```{r}
+bf_testscore
+```
+
+Evidence for a null model (no effect of condition or dataset):
+```{r}
+1/bf_testscore
+```
+
+```{r}
+plot(bf_testscore)
+```
+
+
+There is evidence against an effect of dataset, meaning that the two samples do not need to be analysed separately.
+In addition, the model shows evidence against an effect of condition, which means that there is no difference between conditions in the test score.
+
+**Conclusion: no change in the delayed recall test score.**
+
+## Full dataset
+Repeating this test on the full dataset yields the same conclusions:
+```{r}
+bf_testscore_full <- anovaBF(
+  n_correct ~ condition * dataset,
+  data = test2_full_stats,
+  progress = FALSE
+)
+```
+
+Evidence for this model over a null model (no effect of condition or dataset):
+```{r}
+bf_testscore_full
+```
+
+Evidence for a null model (no effect of condition or dataset):
+```{r}
+1/bf_testscore_full
+```
+
+```{r}
+plot(bf_testscore_full)
+```
+
+**Conclusion: no change in the delayed recall test score.**
+
+Make the plot shown in the paper (both populations):
+```{r}
+test2_full_stats_tex <- test2_full_stats
+levels(test2_full_stats_tex$condition)[5] <- "Fact \\& Learner"
+
+
+p <- test2_full_stats_tex %>%
+  ggplot(aes(y = n_correct, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.5, aes(colour = condition)) +
+  geom_violin(fill = NA) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Delayed recall test score") +
+  theme_paper
+
+tikz(file = "../output/test-score-session2-full-simple.tex", width = 4.75, height = 2)
+p
+dev.off()
+
+p
+```
+
+
+---
+
+
+# Exploratory: accuracy on delayed recall test
+The preregistered test looks at the number of correctly answered items on the delayed recall test, but an alternative way of looking at test performance is the accuracy.
+
+Unsurprisingly, there is also no difference between conditions here.
+```{r}
+bf_accuracy_full <- anovaBF(
+  accuracy ~ condition * dataset,
+  data = test2_full_stats,
+  progress = FALSE
+)
+bf_accuracy_full
+```
+
+Make the plot shown on the poster (lab data only):
+```{r}
+test2_full_stats %>%
+  filter(dataset == "Lab") %>%
+  ggplot(aes(y = accuracy, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.2, 1)) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Test accuracy") +
+  theme_poster
+
+ggsave("../output/test-accuracy-session2-full-simple.pdf", device = "pdf", width = 5.75, height = 2)
+```
+
+
+
+---
+
+
+
+# Exploratory: adaptation vs. no adaptation
+The preregistered tests compare all conditions against each other.
+However, if we want to know if *any* kind of adaptation is better for learning outcomes than no adaptation (i.e., always using a default rate of forgetting), it would make sense to compare all four adaptive conditions together against the default condition.
+
+```{r}
+block2_cutoff_stats <- block2_cutoff_stats %>%
+  mutate(adaptation = as.factor(condition != "Default"))
+
+block2_full_stats <- block2_full_stats %>%
+  mutate(adaptation = as.factor(condition != "Default"))
+
+test2_cutoff_stats <- test2_cutoff_stats %>%
+  mutate(adaptation = as.factor(condition != "Default"))
+
+test2_full_stats <- test2_full_stats %>%
+  mutate(adaptation = as.factor(condition != "Default"))
+```
+
+
+## Number of unique items studied
+
+In the cutoff data there is no evidence for or against an effect of adaptation in general:
+```{r}
+bf_items_adaptation <- anovaBF(
+  unique_items ~ adaptation * dataset,
+  data = block2_cutoff_stats,
+  progress = FALSE
+)
+
+bf_items_adaptation
+```
+
+In the full data there is some evidence against a general effect of adaptation:
+```{r}
+bf_items_adaptation_full <- anovaBF(
+  unique_items ~ adaptation * dataset,
+  data = block2_full_stats,
+  progress = FALSE
+)
+
+bf_items_adaptation_full
+```
+
+## Test score
+
+In the cutoff data there is some evidence against an effect of adaptation in general:
+```{r}
+bf_testscore_adaptation <- anovaBF(
+  n_correct ~ adaptation * dataset,
+  data = test2_cutoff_stats,
+  progress = FALSE
+)
+
+bf_testscore_adaptation
+```
+
+The evidence against an effect is stronger in the full data:
+```{r}
+bf_testscore_adaptation_full <- anovaBF(
+  n_correct ~ adaptation * dataset,
+  data = test2_full_stats,
+  progress = FALSE
+)
+
+bf_testscore_adaptation_full
+```
+
+
+**Conclusion: there is still no effect on learning outcomes when comparing adaptation and no adaptation.**
+
+---
+
+
+# Exploratory: response accuracy during learning session
+
+```{r}
+bf_session_accuracy_full <- anovaBF(
+  accuracy ~ condition * dataset,
+  data = block2_full_stats,
+  progress = FALSE
+)
+```
+Evidence for this model over a null model (no effect of condition or dataset):
+```{r}
+bf_session_accuracy_full
+```
+
+Evidence for a null model (no effect of condition or dataset):
+```{r}
+1/bf_session_accuracy_full
+```
+
+```{r}
+plot(bf_session_accuracy_full)
+```
+
+**Conclusion: no change in the number of unique items studied.**
+
+
+
+
+
+Make the plot shown in the paper (both populations):
+```{r}
+p <- block2_full_stats_tex %>%
+  ggplot(aes(y = accuracy, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_colour_manual(values = condition_colours) +
+  scale_y_continuous(labels = scales::percent_format(suffix = "\\%")) +
+  labs(x = NULL,
+       y = "Response accuracy") +
+  theme_paper
+
+tikz(file = "../output/response-accuracy-session2-full-simple.tex", width = 4.75, height = 2)
+p
+dev.off()
+
+p
+```
+
+Follow-up t-test: is there an improvement going from the Default condition to any of the predictive conditions?
+```{r}
+predictive_ttest <- ttestBF(filter(block2_full_stats_tex, condition == "Default")$accuracy,
+                            filter(block2_full_stats_tex, condition %in% c("Fact & Learner", "Fact", "Learner", "Domain"))$accuracy,
+        nullInterval=c(-Inf, 0))
+
+predictive_ttest
+1/predictive_ttest
+plot(predictive_ttest)
+```
+Is accuracy higher with more individualised predictions than with Domain predictions?
+```{r}
+individualised_ttest <- ttestBF(filter(block2_full_stats_tex, condition == "Domain")$accuracy,
+                                filter(block2_full_stats_tex, condition %in% c("Fact & Learner", "Fact", "Learner"))$accuracy,
+                                nullInterval=c(-Inf, 0))
+
+individualised_ttest
+1/individualised_ttest
+plot(individualised_ttest)
+```
+
+
+# Session information
+```{r}
+sessionInfo()
+```
+
+ 
+

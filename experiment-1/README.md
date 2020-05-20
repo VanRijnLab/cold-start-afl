@@ -34,3 +34,6 @@ The stimuli used in both sessions are located in the [`stimuli`](stimuli) direct
 
 ## OSF project page
 [https://osf.io/snfyz/](https://osf.io/snfyz/)
+
+## Preregistration
+[https://osf.io/3brsa](https://osf.io/3brsa)

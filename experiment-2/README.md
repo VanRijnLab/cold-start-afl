@@ -30,3 +30,6 @@ That directory also contains the R script ([`create_map_stimuli.R`](stimuli/crea
 
 ## OSF project page
 [https://osf.io/snfyz/](https://osf.io/snfyz/)
+
+## Preregistration
+[https://osf.io/w4gtd](https://osf.io/w4gtd)

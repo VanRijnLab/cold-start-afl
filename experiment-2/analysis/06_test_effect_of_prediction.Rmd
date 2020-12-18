@@ -50,8 +50,9 @@ theme_poster <- theme_light(base_size = 14) +
             theme(text = element_text(family = 'Merriweather Sans'),
                   strip.text = element_text(colour = "black")) 
 
-theme_paper <- theme_bw() + 
-  theme(axis.text = element_text(colour = "black"))
+theme_paper <- theme_classic(base_size = 12) + 
+  theme(axis.text = element_text(colour = "black"),
+        panel.grid.major.y = element_line(colour = "grey92"))
 
 condition_colours <- wes_palette("Darjeeling1", n = 5)
 condition_colours <- condition_colours[c(1,3)]
@@ -111,23 +112,52 @@ ggplot(test_acc_studied, aes(x = block, y = p_corr)) +
 Make the plot shown in the paper:
 ```{r}
 p <- test_acc_studied %>%
+  ungroup() %>%
+  mutate(condition = stringr::str_to_title(condition)) %>%
   ggplot(aes(y = p_corr, x = condition, group = condition)) +
   geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
   geom_violin(fill = NA, width = 0.75) +
   geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
   guides(colour = FALSE) +
   expand_limits(y = 0) +
-  scale_y_continuous(labels = scales::percent_format(suffix = "\\%")) +
+  scale_y_continuous(labels = scales::percent_format()) +
   scale_colour_manual(values = condition_colours) +
   labs(x = NULL,
        y = "Test accuracy") +
   theme_paper
 
-tikz(file = "../output/test-accuracy.tex", width = 4.75/2, height = 2)
-p
-dev.off()
+saveRDS(p, "../output/test-accuracy.rds")
 
 p
+```
+
+Make plot for presentation:
+```{r}
+theme_presentation <- theme_light(base_size = 18) +
+  theme(text = element_text(family = "Merriweather Sans", colour = "black"),
+        strip.text = element_text(colour = "black"),
+        plot.title = element_text(size = 14, hjust = 0.5),
+        axis.title = element_text(size = 14),
+        rect = element_rect(fill = "transparent"),
+        plot.background = element_rect(fill = "transparent", color = NA),
+        panel.background  = element_rect(fill = "white", colour = "grey70")
+  ) 
+
+test_acc_studied %>%
+  ggplot(aes(y = p_corr, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_x_discrete(labels = c("Cold start", "Warm start")) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Test accuracy") +
+  theme_presentation
+
+ggsave("../output/test-accuracy-presentation.png", device = "png", width = 4, height = 3, bg = "transparent")
 ```
 
 

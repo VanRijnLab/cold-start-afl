@@ -1,0 +1,115 @@
+---
+title: "Combination plots for paper"
+author: "Maarten van der Velde"
+date: "Last updated: `r Sys.Date()`"
+output:
+  html_notebook:
+    smart: no
+    toc: yes
+    toc_float: yes
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+---
+
+
+```{r}
+library(ggplot2)
+library(cowplot)
+library(grid)
+```
+
+## Main results figure
+
+```{r}
+p_pred2 <- readRDS("../output/predictions_rmse.rds")
+p_pred2_bigsmall <- readRDS("../output/predicted-rof-exp2.rds")
+p_facts2 <- readRDS("../output/facts-studied.rds")
+p_learnacc2 <- readRDS("../output/learning-accuracy.rds")
+p_testscore2 <- readRDS("../output/test-score.rds")
+p_testacc2 <- readRDS("../output/test-accuracy.rds")
+```
+
+
+```{r}
+p_pred_title <- ggdraw() +
+  draw_label(
+    "Rate of forgetting prediction",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+p_learn_title <- ggdraw() +
+  draw_label(
+    "Learning session performance",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+p_test_title <- ggdraw() +
+  draw_label(
+    "Delayed recall test performance",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+```
+
+```{r}
+p_combi <- plot_grid(p_pred_title,
+                     plot_grid(p_pred2, p_pred2_bigsmall, labels = c("A", "B"), ncol = 2, rel_widths = c(1, 0.7), align = "vh", axis = "bt"),
+                     NULL,
+                     plot_grid(p_learn_title, p_test_title),
+                     plot_grid(p_facts2, p_learnacc2, p_testscore2, p_testacc2, labels = c("C", "D", "E", "F"), ncol = 4, align = "v", axis = "l"),
+                     ncol = 1,
+                     rel_heights = c(.15, 1, .1, .15, 1))
+
+p_combi
+ggsave("../output/combi-exp2.pdf", device = "pdf", width = 7, height = 5.5)
+
+p_combi
+```
+
+## Extra RoF figure
+
+```{r}
+p_acc_rof <- readRDS("../output/combi-accuracy-rof.rds")
+p_pres_rof <- readRDS("../output/presentations-rof.rds")
+p_legend <- readRDS("../output/legend.rds")
+```
+
+```{r}
+p_aligned <- align_plots(p_pres_rof, p_acc_rof, align = "hv", axis = "tblr")
+
+p_combi <- plot_grid(plot_grid(p_aligned[[1]], p_legend, ncol = 2, rel_widths = c(1, .815), scale = 0.99),
+                     p_aligned[[2]],
+                     ncol = 1,
+                     labels = c("A", "B"),
+                     scale = 0.99)
+
+
+
+ggsave("../output/combi-rof-exp2.pdf", device = "pdf", width = 7, height = 5.5)
+
+p_combi
+
+```
+

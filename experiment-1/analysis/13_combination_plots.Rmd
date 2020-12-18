@@ -1,0 +1,98 @@
+---
+title: "Combination plots for paper"
+author: "Maarten van der Velde"
+date: "Last updated: `r Sys.Date()`"
+output:
+  html_notebook:
+    smart: no
+    toc: yes
+    toc_float: yes
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: yes
+---
+
+
+```{r}
+library(ggplot2)
+library(cowplot)
+# library(tikzDevice)
+```
+
+```{r}
+p_pred1 <- readRDS("../output/prediction_rmse_full.rds")
+p_facts1 <- readRDS("../output/number-of-facts-session2-full-simple.rds")
+p_learnacc1 <- readRDS("../output/learning-accuracy-session2-full-simple.rds")
+p_testscore1 <- readRDS("../output/test-score-session2-full-simple.rds")
+p_testacc1 <- readRDS("../output/test-accuracy-session2-full-simple.rds")
+```
+
+
+```{r}
+p_pred_title <- ggdraw() +
+  draw_label(
+    "Rate of forgetting prediction",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+p_learn_title <- ggdraw() +
+  draw_label(
+    "Learning session performance",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+p_test_title <- ggdraw() +
+  draw_label(
+    "Delayed recall test performance",
+    fontface = 'bold',
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+```
+
+```{r}
+# plots_aligned <- align_plots(p_pred1, p_facts1, align = "v", axis = "l")
+
+# p_combi <- plot_grid(plots_aligned[[1]], plots_aligned[[2]], labels = c("A", "B"), ncol = 1, rel_heights = c(1, .8))
+
+
+p_combi <- plot_grid(p_pred_title,
+                     p_pred1,
+                     p_learn_title,
+                     plot_grid(p_facts1, p_learnacc1, labels = c("B", "C"), ncol = 2),
+                     p_test_title,
+                     plot_grid(p_testscore1, p_testacc1, labels = c("D", "E"), ncol = 2),
+                     labels = c("", "A", "", "", "", ""),
+                     ncol = 1,
+                     rel_heights = c(.15, 1, .15, 1, .15, 1))
+
+# tikz(file = "../output/combi-exp1.tex", width = 4.75, height = 10)
+# p_combi
+# dev.off()
+
+p_combi
+ggsave("../output/combi-exp1.pdf", device = "pdf", width = 7, height = 8)
+
+p_combi
+```
+

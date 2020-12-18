@@ -32,8 +32,9 @@ loadfonts()
 theme_set(theme_light(base_size = 14) +
             theme(text = element_text(family = 'Merriweather Sans')))
 
-theme_paper <- theme_bw() + 
-  theme(axis.text = element_text(colour = "black"))
+theme_paper <- theme_classic(base_size = 12) + 
+  theme(axis.text = element_text(colour = "black"),
+        panel.grid.major.y = element_line(colour = "grey92"))
 
 condition_colours <- wes_palette("Darjeeling1", n = 5)
 condition_colours[c(2, 4, 5)] <- condition_colours[c(4, 5, 2)]
@@ -423,11 +424,12 @@ for(j in seq_along(alpha)) {
 act <- rbindlist(act)
 r$alpha <- as.factor(stringr::str_remove(r$fact_id, "fact"))
 act$alpha <- as.factor(act$alpha)
-levels(act$alpha) <- c("$\\alpha = 0.2$", "$\\alpha = 0.3$", "$\\alpha = 0.4$")
-levels(r$alpha) <- c("$\\alpha = 0.2$", "$\\alpha = 0.3$", "$\\alpha = 0.4$")
+levels(act$alpha) <- c(expression(paste(alpha, " = 0.2")), expression(paste(alpha, " = 0.3")), expression(paste(alpha, " = 0.4")))
+levels(r$alpha) <- c(expression(paste(alpha, " = 0.2")), expression(paste(alpha, " = 0.3")), expression(paste(alpha, " = 0.4")))
+
 
 p <- ggplot(act, aes(x = time/1000, y = activation, colour = alpha, group = alpha)) +
-  facet_grid(. ~ alpha) +
+  facet_grid(. ~ alpha, labeller = label_parsed) +
   geom_hline(yintercept = -.8, linetype = 2) +
   geom_line() +
   geom_linerange(data = r, aes(x = start_time/1000, ymin = -.8, ymax = 2, colour = alpha)) +
@@ -439,9 +441,10 @@ p <- ggplot(act, aes(x = time/1000, y = activation, colour = alpha, group = alph
   labs(x = "Time (s)",
        y = "Activation",
        colour = NULL) +
-  theme_paper
+  theme_bw(base_size = 12) + 
+  theme(axis.text = element_text(colour = "black"),
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = rel(1.5)))
+p
+ggsave("output/alpha_simulation.pdf", device = "pdf", width = 7, height = 2.75)
 
-tikz(file = "output/alpha_simulation.tex", width = 4.75, height = 2)
-p
-dev.off()
-p

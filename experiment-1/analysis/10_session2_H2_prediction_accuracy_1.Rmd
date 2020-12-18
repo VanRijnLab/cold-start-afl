@@ -46,8 +46,9 @@ theme_poster <- theme_light(base_size = 14) +
             theme(text = element_text(family = 'Merriweather Sans'),
                   strip.text = element_text(colour = "black")) 
 
-theme_paper <- theme_bw() + 
-  theme(axis.text = element_text(colour = "black"))
+theme_paper <- theme_bw(base_size = 12) + 
+  theme(axis.text = element_text(colour = "black"),
+        strip.background = element_blank())
 
 condition_colours <- wes_palette("Darjeeling1", n = 5)
 condition_colours[c(2, 4, 5)] <- condition_colours[c(4, 5, 2)]
@@ -173,6 +174,12 @@ pred_acc_by_cond_full <- pred_acc_by_subj_full %>%
             rmse_mean = mean(rmse, na.rm = T),
             rmse_sd = sd(rmse, na.rm = T))
 
+pred_acc_by_cond_full_combi <- pred_acc_by_subj_full %>%
+  group_by(condition) %>%
+  summarise(correlation_mean = mean(correlation, na.rm = T),
+            correlation_sd = sd(correlation, na.rm = T),
+            rmse_mean = mean(rmse, na.rm = T),
+            rmse_sd = sd(rmse, na.rm = T))
 ```
 ## Cutoff dataset
 
@@ -284,43 +291,48 @@ final_alpha_2_full %>%
 ggsave("../output/prediction_rmse_full.pdf", device = "pdf", width = 10, height = 6)
 ```
 
-Make the plot shown in the paper:
+Make the plot shown in the paper (both datasets combined):
 ```{r}
-final_alpha_2_full_tex <- final_alpha_2_full
-levels(final_alpha_2_full_tex$condition)[5] <- "Fact \\& Learner"
+# final_alpha_2_full_tex <- final_alpha_2_full
+# levels(final_alpha_2_full_tex$condition)[5] <- "Fact \\& Learner"
+# 
+# pred_acc_by_cond_full_tex <- pred_acc_by_cond_full
+# levels(pred_acc_by_cond_full_tex$condition)[5] <- "Fact \\& Learner"
 
-pred_acc_by_cond_full_tex <- pred_acc_by_cond_full
-levels(pred_acc_by_cond_full_tex$condition)[5] <- "Fact \\& Learner"
-
-p <- final_alpha_2_full_tex %>%
+# p <- final_alpha_2_full_tex %>%
+p <- final_alpha_2_full %>%
   ggplot(aes(x = prediction, y = final_alpha, colour = condition)) +
-  facet_grid(dataset ~ condition) +
+  # facet_grid(dataset ~ condition) +
+  facet_grid(. ~ condition) +
   geom_hline(yintercept = 0.3, lty = 2) +
   geom_vline(xintercept = 0.3, lty = 2) +
   geom_abline(slope = 1, intercept = 0, lty = 3, alpha = 0.75) +
-  geom_point(alpha = 0.5) +
-  geom_smooth(method = "lm", colour = "black") +
-  geom_text(aes(label = paste("RMSE =", formatC(rmse_mean, digits = 3, flag = "#"))), x = max(final_alpha_2_full_tex$final_alpha), y = min(final_alpha_2_full_tex$final_alpha), hjust = 1, colour = "black", size = rel(2), data = pred_acc_by_cond_full_tex) +
+  geom_point(alpha = 0.25, size = rel(.5)) +
+  geom_smooth(data = filter(final_alpha_2_full, !condition %in% c("Default", "Domain")), method = "lm", colour = "black") +
+  geom_text(aes(label = paste("RMSE =", formatC(rmse_mean, digits = 3, flag = "#"))), x = max(final_alpha_2_full$final_alpha), y = min(final_alpha_2_full$final_alpha), hjust = 1, colour = "black", size = rel(2), data = pred_acc_by_cond_full_combi) +
   coord_fixed(ratio = 1) +
-  scale_x_continuous(limits = range(final_alpha_2_full_tex$final_alpha)) +
-  scale_y_continuous(limits = range(final_alpha_2_full_tex$final_alpha)) +
+  scale_x_continuous(limits = range(final_alpha_2_full$final_alpha)) +
+  scale_y_continuous(limits = range(final_alpha_2_full$final_alpha)) +
   scale_colour_manual(values = condition_colours) +
   guides(colour = FALSE) +
   labs(x = "Predicted rate of forgetting",
-       y = "Observed rate of forgetting") +
-  theme_paper
+       y = "Observed\nrate of forgetting") +
+  theme_bw(base_size = 12) + 
+  theme(axis.text = element_text(colour = "black"),
+        strip.background = element_blank())
 
+saveRDS(p, "../output/prediction_rmse_full.rds")
 
-tikz(file = "../output/prediction_rmse_full.tex", width = 6.5, height = 3.5)
-p
-dev.off()
+# tikz(file = "../output/prediction_rmse_full.tex", width = 6.5, height = 3.5)
+# p
+# dev.off()
 
 p
 ```
 
 
 ```{r}
-ggplot(pred_acc_by_subj_cutoff, aes(x = condition, y = rmse)) +
+ggplot(pred_acc_by_subj_full, aes(x = condition, y = rmse)) +
   facet_grid(dataset ~ .) +
   geom_jitter(width = 0.1, height = 0, alpha = 0.5, aes(colour = condition)) +
   geom_violin(fill = NA) +
@@ -378,6 +390,23 @@ bf_pred_acc_mturk_full
 ```
 
 **Conclusion: weak effect of condition on prediction accuracy (RMSE), and overall difference between populations.**
+
+
+Mean by population:
+```{r}
+pred_acc_by_subj_full %>%
+  group_by(dataset) %>%
+  summarise(acc_mean = mean(rmse),
+            acc_sd = sd(rmse))
+```
+
+Mean by condition:
+```{r}
+pred_acc_by_subj_full %>%
+  group_by(condition) %>%
+  summarise(acc_mean = mean(rmse),
+            acc_sd = sd(rmse))
+```
 
 
 ---
@@ -484,6 +513,14 @@ bf_pred_acc_mturk_full_adaptation
 
 
 **Conclusion: there is evidence for an effect of adaptation in general in both datasets.**
+
+Mean RMSE:
+```{r}
+pred_acc_by_subj_full %>%
+  group_by(adaptation) %>%
+  summarise(acc_mean = mean(rmse),
+            acc_sd = sd(rmse))
+```
 
 
 ---

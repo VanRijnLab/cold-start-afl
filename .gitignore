@@ -1,4 +1,5 @@
 experiment-1/data/raw
+experiment-1/analysis/model_fits
 experiment-2/data/raw
 experiment-2/analysis/model_fits
 
@@ -6,3 +7,4 @@ experiment-2/analysis/model_fits
 .Rhistory
 .directory
 .RData
+.rds

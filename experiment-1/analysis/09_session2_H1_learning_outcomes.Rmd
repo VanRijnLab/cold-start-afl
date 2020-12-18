@@ -26,6 +26,7 @@ This notebook contains the analysis of Hypothesis 1, as preregistered at https:/
 ## Load packages
 ```{r}
 library(BayesFactor)
+library(brms)
 library(dplyr)
 library(forcats)
 library(ggplot2)
@@ -37,6 +38,10 @@ library(extrafont)
 library(wesanderson)
 library(tikzDevice)
 library(fst)
+library(future)
+
+plan(multiprocess)
+
 
 # font_import() # Run once to populate the R font database with the fonts on the system
 loadfonts(quiet = TRUE)
@@ -45,8 +50,9 @@ theme_poster <- theme_light(base_size = 14) +
             theme(text = element_text(family = 'Merriweather Sans'),
                   strip.text = element_text(colour = "black")) 
 
-theme_paper <- theme_bw() + 
-  theme(axis.text = element_text(colour = "black"))
+theme_paper <- theme_classic(base_size = 12) + 
+  theme(axis.text = element_text(colour = "black"),
+        panel.grid.major.y = element_line(colour = "grey92"))
 
 condition_colours <- wes_palette("Darjeeling1", n = 5)
 condition_colours[c(2, 4, 5)] <- condition_colours[c(4, 5, 2)]
@@ -157,7 +163,8 @@ block2_cutoff_stats <- block2_cutoff %>%
   group_by(dataset, condition, subject) %>%
   summarise(unique_items = length(unique(fact_id)),
             trials = n(),
-            accuracy = mean(correct)) %>%
+            accuracy = mean(correct[study == FALSE]),
+            accuracy_all = mean(correct)) %>%
   ungroup() %>%
   mutate_if(~ is_character(.), as.factor)
 
@@ -165,7 +172,8 @@ block2_full_stats <- block2_full %>%
   group_by(dataset, condition, subject) %>%
   summarise(unique_items = length(unique(fact_id)),
             trials = n(),
-            accuracy = mean(correct)) %>%
+            accuracy = mean(correct[study == FALSE]),
+            accuracy_all = mean(correct)) %>%
   ungroup() %>%
   mutate_if(~ is_character(.), as.factor)
 
@@ -203,6 +211,8 @@ In addition, the model shows evidence against an effect of condition, which mean
 
 **Conclusion: no change in the number of unique items studied.**
 
+
+
 ## Full dataset
 Repeating this test on the full dataset yields the same conclusions:
 ```{r}
@@ -228,6 +238,107 @@ plot(bf_items_full)
 
 **Conclusion: no change in the number of unique items studied.**
 
+
+Instead of the preregistered ANOVA (which assumes a normally distributed DV), we should really use a Poisson regression (which assumes a discrete DV and is therefore more appropriate for count data).
+
+Fit the models:
+```{r}
+m_facts_1 <- brm(unique_items ~ dataset * condition,
+                        family = poisson(),
+                        data = block2_full_stats,
+                        prior = set_prior("cauchy(0, 1)", class = "b"),
+                        chains = 4,
+                        iter = 10000,
+                        save_all_pars = TRUE,
+                        sample_prior = TRUE,
+                        future = TRUE,
+                        seed = 0,
+                        file = "model_fits/m_facts_1"
+)
+```
+
+```{r}
+m_facts_2 <- brm(unique_items ~ dataset + condition,
+                        family = poisson(),
+                        data = block2_full_stats,
+                        prior = set_prior("cauchy(0, 1)", class = "b"),
+                        chains = 4,
+                        iter = 10000,
+                        save_all_pars = TRUE,
+                        sample_prior = TRUE,
+                        future = TRUE,
+                        seed = 0,
+                        file = "model_fits/m_facts_2"
+)
+```
+
+```{r}
+m_facts_3 <- brm(unique_items ~ dataset,
+                        family = poisson(),
+                        data = block2_full_stats,
+                        prior = set_prior("cauchy(0, 1)", class = "b"),
+                        chains = 4,
+                        iter = 10000,
+                        save_all_pars = TRUE,
+                        sample_prior = TRUE,
+                        future = TRUE,
+                        seed = 0,
+                        file = "model_fits/m_facts_3"
+)
+```
+
+```{r}
+m_facts_4 <- brm(unique_items ~ condition,
+                        family = poisson(),
+                        data = block2_full_stats,
+                        prior = set_prior("cauchy(0, 1)", class = "b"),
+                        chains = 4,
+                        iter = 10000,
+                        save_all_pars = TRUE,
+                        sample_prior = TRUE,
+                        future = TRUE,
+                        seed = 0,
+                        file = "model_fits/m_facts_4"
+)
+```
+
+```{r}
+m_facts_5 <- brm(unique_items ~ 1 ,
+                        family = poisson(),
+                        data = block2_full_stats,
+                        chains = 4,
+                        iter = 10000,
+                        save_all_pars = TRUE,
+                        sample_prior = TRUE,
+                        future = TRUE,
+                        seed = 0,
+                        file = "model_fits/m_facts_5"
+)
+```
+
+
+Compare using bridge sampling:
+```{r}
+bayes_factor(m_facts_1, m_facts_5)
+bayes_factor(m_facts_2, m_facts_5)
+bayes_factor(m_facts_3, m_facts_5)
+bayes_factor(m_facts_4, m_facts_5)
+```
+
+The best model:
+```{r}
+summary(m_facts_5)
+```
+
+The model makes the following prediction:
+```{r}
+fitted(m_facts_5,
+       newdata = data.frame(xyz = 0),
+       re_formula = NA,
+       summary = TRUE)
+```
+
+
 Make the plot shown on the poster (lab data only):
 ```{r}
 block2_full_stats %>%
@@ -248,27 +359,26 @@ ggsave("../output/number-of-facts-session2-full-simple.pdf", device = "pdf", wid
 
 Make the plot shown in the paper (both populations):
 ```{r}
-block2_full_stats_tex <- block2_full_stats
-levels(block2_full_stats_tex$condition)[5] <- "Fact \\& Learner"
-
-p <- block2_full_stats_tex %>%
+p <- block2_full_stats %>%
   ggplot(aes(y = unique_items, x = condition, group = condition)) +
   geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
   geom_violin(fill = NA, width = 0.75) +
   geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
   guides(colour = FALSE) +
   expand_limits(y = 0) +
+  scale_x_discrete(labels = scales::wrap_format(8)) +
   scale_colour_manual(values = condition_colours) +
   labs(x = NULL,
        y = "Facts studied") +
   theme_paper
 
-tikz(file = "../output/number-of-facts-session2-full-simple.tex", width = 4.75, height = 2)
-p
-dev.off()
+saveRDS(p, file = "../output/number-of-facts-session2-full-simple.rds")
 
 p
 ```
+
+
+
 
 
 # Test score
@@ -355,30 +465,138 @@ plot(bf_testscore_full)
 
 **Conclusion: no change in the delayed recall test score.**
 
+Once again, we should really model this with a Poisson regression instead.
+
+Fit the models:
+```{r}
+m_test_1 <- brm(n_correct ~ dataset * condition,
+                        family = poisson(),
+                        data = test2_full_stats,
+                        prior = set_prior("cauchy(0, 1)", class = "b"),
+                        chains = 4,
+                        iter = 10000,
+                        save_all_pars = TRUE,
+                        sample_prior = TRUE,
+                        future = TRUE,
+                        seed = 0,
+                        file = "model_fits/m_test_1"
+)
+```
+
+```{r}
+m_test_2 <- brm(n_correct ~ dataset + condition,
+                        family = poisson(),
+                        data = test2_full_stats,
+                        prior = set_prior("cauchy(0, 1)", class = "b"),
+                        chains = 4,
+                        iter = 10000,
+                        save_all_pars = TRUE,
+                        sample_prior = TRUE,
+                        future = TRUE,
+                        seed = 0,
+                        file = "model_fits/m_test_2"
+)
+```
+
+```{r}
+m_test_3 <- brm(n_correct ~ dataset,
+                        family = poisson(),
+                        data = test2_full_stats,
+                        prior = set_prior("cauchy(0, 1)", class = "b"),
+                        chains = 4,
+                        iter = 10000,
+                        save_all_pars = TRUE,
+                        sample_prior = TRUE,
+                        future = TRUE,
+                        seed = 0,
+                        file = "model_fits/m_test_3"
+)
+```
+
+```{r}
+m_test_4 <- brm(n_correct ~ condition,
+                        family = poisson(),
+                        data = test2_full_stats,
+                        prior = set_prior("cauchy(0, 1)", class = "b"),
+                        chains = 4,
+                        iter = 10000,
+                        save_all_pars = TRUE,
+                        sample_prior = TRUE,
+                        future = TRUE,
+                        seed = 0,
+                        file = "model_fits/m_test_4"
+)
+```
+
+```{r}
+m_test_5 <- brm(n_correct ~ 1,
+                        family = poisson(),
+                        data = test2_full_stats,
+                        chains = 4,
+                        iter = 10000,
+                        save_all_pars = TRUE,
+                        sample_prior = TRUE,
+                        future = TRUE,
+                        seed = 0,
+                        file = "model_fits/m_test_5"
+)
+```
+
+
+Compare using bridge sampling:
+```{r}
+bayes_factor(m_test_1, m_test_5)
+bayes_factor(m_test_2, m_test_5)
+bayes_factor(m_test_3, m_test_5)
+bayes_factor(m_test_4, m_test_5)
+```
+
+The best model:
+```{r}
+summary(m_test_5)
+```
+
+The model makes the following prediction:
+```{r}
+fitted(m_test_5,
+       newdata = data.frame(xyz = 0),
+       re_formula = NA,
+       summary = TRUE)
+```
+
+
+
+
 Make the plot shown in the paper (both populations):
 ```{r}
-test2_full_stats_tex <- test2_full_stats
-levels(test2_full_stats_tex$condition)[5] <- "Fact \\& Learner"
+# test2_full_stats_tex <- test2_full_stats
+# levels(test2_full_stats_tex$condition)[5] <- "Fact \\& Learner"
 
 
-p <- test2_full_stats_tex %>%
+# p <- test2_full_stats_tex %>%
+p <- test2_full_stats %>%
   ggplot(aes(y = n_correct, x = condition, group = condition)) +
   geom_jitter(width = 0.1, height = 0, alpha = 0.5, aes(colour = condition)) +
   geom_violin(fill = NA) +
   geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
   guides(colour = FALSE) +
   expand_limits(y = 0) +
+  scale_x_discrete(labels = scales::wrap_format(8)) +
   scale_colour_manual(values = condition_colours) +
   labs(x = NULL,
-       y = "Delayed recall test score") +
+       y = "Test score") +
   theme_paper
 
-tikz(file = "../output/test-score-session2-full-simple.tex", width = 4.75, height = 2)
-p
-dev.off()
+saveRDS(p, file = "../output/test-score-session2-full-simple.rds")
+
+# tikz(file = "../output/test-score-session2-full-simple.tex", width = 4.75, height = 2)
+# p
+# dev.off()
 
 p
 ```
+
+
 
 
 ---
@@ -396,6 +614,129 @@ bf_accuracy_full <- anovaBF(
 )
 bf_accuracy_full
 ```
+
+```{r}
+1/bf_accuracy_full
+```
+
+
+### Bayesian logistic regression
+
+Set the priors for the fixed effects:
+```{r}
+prior_m1 <- set_prior("cauchy(0, 1)", class = "b")
+```
+
+Fit the most complex model:
+```{r}
+m_testacc_1 <- brm(
+  correct ~ condition * dataset + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test2_full,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_testacc_1"
+)
+```
+
+Also fit simpler models for comparison:
+```{r}
+m_testacc_2 <- brm(
+  correct ~ condition + dataset + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test2_full,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_testacc_2"
+)
+
+m_testacc_3 <- brm(
+  correct ~ condition + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test2_full,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_testacc_3"
+)
+
+m_testacc_4 <- brm(
+  correct ~ dataset + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test2_full,
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_testacc_4"
+)
+
+m_testacc_5 <- brm(
+  correct ~ 1 + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = test2_full,
+  # prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_testacc_5"
+)
+```
+
+Compare models (relative to intercept-only model):
+```{r}
+bayes_factor(m_testacc_1, m_testacc_5)
+bayes_factor(m_testacc_2, m_testacc_5)
+bayes_factor(m_testacc_3, m_testacc_5)
+bayes_factor(m_testacc_4, m_testacc_5)
+```
+
+The intercept-only model is the best one.
+
+```{r, fig.width = 12}
+mcmc_plot(m_testacc_5, type = "trace")
+
+mcmc_plot(m_testacc_5, type = "acf_bar")
+```
+
+```{r}
+summary(m_testacc_5)
+```
+
+
+```{r}
+mcmc_plot(m_testacc_5, pars = c("b_Intercept"), type = "areas", prob = .95, transformations = plogis)
+```
+
+The model makes the following predictions, based on its fixed effects.
+
+```{r}
+fitted(m_testacc_5,
+       newdata = data.frame(xyz = 0),
+       re_formula = NA)
+```
+
+
 
 Make the plot shown on the poster (lab data only):
 ```{r}
@@ -417,6 +758,26 @@ ggsave("../output/test-accuracy-session2-full-simple.pdf", device = "pdf", width
 ```
 
 
+Make the plot shown in the paper (both populations)
+```{r}
+p <- test2_full_stats %>%
+  ggplot(aes(y = accuracy, x = condition, group = condition)) +
+  geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
+  geom_violin(fill = NA, width = 0.75) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, fill = NA) +
+  guides(colour = FALSE) +
+  expand_limits(y = 0) +
+  scale_x_discrete(labels = scales::wrap_format(8)) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
+  scale_colour_manual(values = condition_colours) +
+  labs(x = NULL,
+       y = "Test accuracy") +
+  theme_paper
+
+saveRDS(p, file = "../output/test-accuracy-session2-full-simple.rds")
+
+p
+```
 
 ---
 
@@ -518,15 +879,161 @@ Evidence for a null model (no effect of condition or dataset):
 plot(bf_session_accuracy_full)
 ```
 
-**Conclusion: no change in the number of unique items studied.**
+**Conclusion: additive effects of dataset and condition on learning accuracy.**
 
 
+### Bayesian logistic regression
 
+Set the priors for the fixed effects:
+```{r}
+prior_m1 <- set_prior("cauchy(0, 1)", class = "b")
+```
+
+Fit the most complex model:
+```{r}
+m_learnacc_1 <- brm(
+  correct ~ condition * dataset + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = filter(block2_full, study == FALSE),
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_learnacc_1"
+)
+```
+
+Also fit simpler models for comparison:
+```{r}
+m_learnacc_2 <- brm(
+  correct ~ condition + dataset + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = filter(block2_full, study == FALSE),
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_learnacc_2"
+)
+
+m_learnacc_3 <- brm(
+  correct ~ condition + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = filter(block2_full, study == FALSE),
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_learnacc_3"
+)
+
+m_learnacc_4 <- brm(
+  correct ~ dataset + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = filter(block2_full, study == FALSE),
+  prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_learnacc_4"
+)
+
+m_learnacc_5 <- brm(
+  correct ~ 1 + (1 | subject) + (1 | fact_id),
+  family = bernoulli,
+  data = filter(block2_full, study == FALSE),
+  # prior = prior_m1,
+  chains = 4,
+  iter = 10000,
+  save_all_pars = TRUE,
+  sample_prior = TRUE,
+  future = TRUE,
+  seed = 0,
+  file = "model_fits/m_learnacc_5"
+)
+```
+
+Compare models (relative to intercept-only model):
+```{r}
+bayes_factor(m_learnacc_1, m_learnacc_5)
+bayes_factor(m_learnacc_2, m_learnacc_5)
+bayes_factor(m_learnacc_3, m_learnacc_5)
+bayes_factor(m_learnacc_4, m_learnacc_5)
+```
+
+The model with additive effects of prediction type and population is the best one.
+
+```{r, fig.width = 12}
+mcmc_plot(m_learnacc_2, type = "trace")
+
+mcmc_plot(m_learnacc_2, type = "acf_bar")
+```
+
+```{r}
+summary(m_learnacc_2)
+```
+
+
+```{r}
+mcmc_plot(m_learnacc_2, pars = c("b_Intercept", "b_condition", "b_dataset"), type = "areas", prob = .95)
+```
+
+The model makes the following predictions, based on its fixed effects.
+
+```{r}
+# Get fitted values
+new_data <- crossing(condition = levels(block2_full$condition), dataset = levels(as.factor(block2_full$dataset)))
+fit_m_learn_2 <- data.table(fitted(m_learnacc_2,
+                            newdata = new_data,
+                            re_formula = NA,
+                            summary = FALSE))
+setnames(fit_m_learn_2, as.character(interaction(new_data$condition, new_data$dataset)))
+
+fit_m_learn_2_summary <- data.table(fitted(m_learnacc_2,
+                                    newdata = new_data,
+                                    re_formula = NA))
+setnames(fit_m_learn_2_summary, c("fit", "se", "lower", "upper"))
+fit_m_learn_2_summary <- cbind(new_data, fit_m_learn_2_summary)
+```
+
+
+Overall response accuracy (across datasets and conditions):
+```{r}
+quantile(rowSums(fit_m_learn_2)/ncol(fit_m_learn_2),
+         probs = c(.5, .025, .975))
+```
+
+Difference in response accuracy between Lab and Mturk (across conditions): 
+```{r}
+lab_vs_mturk <- rowSums(fit_m_learn_2[, c(1,3,5,7,9)])/5 - rowSums(fit_m_learn_2[, c(2,4,6,8,10)])/5
+
+quantile(lab_vs_mturk, probs = c(.5, .025, .975))
+```
+
+Difference in response accuracy between the four adaptive conditions and Default (across datasets): 
+```{r}
+rest_vs_default <- rowSums(fit_m_learn_2[,c(3:10)])/8 - rowSums(fit_m_learn_2[,c(1:2)])/2
+
+quantile(rest_vs_default, probs = c(.5, .025, .975))
+```
 
 
 Make the plot shown in the paper (both populations):
 ```{r}
-p <- block2_full_stats_tex %>%
+# p <- block2_full_stats_tex %>%
+p <- block2_full_stats %>%
   ggplot(aes(y = accuracy, x = condition, group = condition)) +
   geom_jitter(width = 0.1, height = 0, alpha = 0.3, aes(colour = condition)) +
   geom_violin(fill = NA, width = 0.75) +
@@ -534,22 +1041,27 @@ p <- block2_full_stats_tex %>%
   guides(colour = FALSE) +
   expand_limits(y = 0) +
   scale_colour_manual(values = condition_colours) +
-  scale_y_continuous(labels = scales::percent_format(suffix = "\\%")) +
+  scale_x_discrete(labels = scales::wrap_format(8)) +
+  # scale_y_continuous(labels = scales::percent_format(suffix = "\\%")) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
   labs(x = NULL,
-       y = "Response accuracy") +
+       y = "Learning accuracy") +
   theme_paper
 
-tikz(file = "../output/response-accuracy-session2-full-simple.tex", width = 4.75, height = 2)
-p
-dev.off()
+
+saveRDS(p, file = "../output/learning-accuracy-session2-full-simple.rds")
+
+# tikz(file = "../output/response-accuracy-session2-full-simple.tex", width = 4.75, height = 2)
+# p
+# dev.off()
 
 p
 ```
 
 Follow-up t-test: is there an improvement going from the Default condition to any of the predictive conditions?
 ```{r}
-predictive_ttest <- ttestBF(filter(block2_full_stats_tex, condition == "Default")$accuracy,
-                            filter(block2_full_stats_tex, condition %in% c("Fact & Learner", "Fact", "Learner", "Domain"))$accuracy,
+predictive_ttest <- ttestBF(filter(block2_full_stats, condition == "Default")$accuracy,
+                            filter(block2_full_stats, condition %in% c("Fact & Learner", "Fact", "Learner", "Domain"))$accuracy,
         nullInterval=c(-Inf, 0))
 
 predictive_ttest
@@ -558,8 +1070,8 @@ plot(predictive_ttest)
 ```
 Is accuracy higher with more individualised predictions than with Domain predictions?
 ```{r}
-individualised_ttest <- ttestBF(filter(block2_full_stats_tex, condition == "Domain")$accuracy,
-                                filter(block2_full_stats_tex, condition %in% c("Fact & Learner", "Fact", "Learner"))$accuracy,
+individualised_ttest <- ttestBF(filter(block2_full_stats, condition == "Domain")$accuracy,
+                                filter(block2_full_stats, condition %in% c("Fact & Learner", "Fact", "Learner"))$accuracy,
                                 nullInterval=c(-Inf, 0))
 
 individualised_ttest
